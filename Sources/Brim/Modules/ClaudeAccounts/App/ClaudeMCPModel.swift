@@ -87,9 +87,16 @@ final class ClaudeMCPReader: @unchecked Sendable {
         snapshot.repos = ClaudeMCPRepoList.build(keys: readable.flatMap(\.projects.keys), added: state.repos,
                                                  projectsDirectories: projects)
         let plugins = ClaudeMCPPlugins.scan(home: input.home)
-        snapshot.takenEverywhere = Set(readable.flatMap { config in
-            config.userServers.keys + config.projects.values.flatMap { (ClaudeJSON.object($0["mcpServers"]) ?? [:]).keys }
-        } + state.servers.keys + plugins.map(\.runtimeName))
+        // Built in steps: as one expression, Swift 6.0's type checker gives up on it.
+        var taken = Set<String>(state.servers.keys)
+        taken.formUnion(plugins.map(\.runtimeName))
+        for config in readable {
+            taken.formUnion(config.userServers.keys)
+            for project in config.projects.values {
+                taken.formUnion((ClaudeJSON.object(project["mcpServers"]) ?? [:]).keys)
+            }
+        }
+        snapshot.takenEverywhere = taken
         let labels = Dictionary(input.folders.map { ($0.folder, $0.label) }, uniquingKeysWith: { a, _ in a })
 
         // The user-scope mirror: the union of the readable folders' servers.

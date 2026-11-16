@@ -431,10 +431,20 @@ enum FileEventStreamTests {
                      "projects/ appearing is a change, and the watch moves onto it")
         try? fm.createDirectory(atPath: config + "/projects/-Users-x-Code-App", withIntermediateDirectories: false)
         suite.expect(fired.wait(timeout: .now() + 5) == .success, "a repo folder added to the new projects/ is a change")
+        // Removing a non-empty projects/ reaches the watch as two kqueue
+        // events, its entry going (a write) and then the folder (a delete).
+        // Real failure (CI, macOS 26): checking after the first change read
+        // the watch before the delete moved it. Take them one at a time.
+        try? fm.removeItem(atPath: config + "/projects/-Users-x-Code-App")
+        suite.expect(fired.wait(timeout: .now() + 5) == .success && queue.sync { watch.watchingFolder },
+                     "a repo folder going away is a change, and projects/ stays watched")
         try? fm.removeItem(atPath: config + "/projects")
-        let removed = fired.wait(timeout: .now() + 5) == .success
-        suite.expect(removed && queue.sync { watch.isArmed && !watch.watchingFolder },
-                     "projects/ going away is a change, and the parent is watched again")
+        let deadline = DispatchTime.now() + 5
+        var removed = false
+        while !removed, fired.wait(timeout: deadline) == .success {
+            removed = queue.sync { watch.isArmed && !watch.watchingFolder }
+        }
+        suite.expect(removed, "projects/ going away is a change, and the parent is watched again")
         queue.sync { watch.cancel() }
         let missing = FolderEntriesWatch(path: scratch + "/no-such-folder/projects", queue: queue) {}
         queue.sync { missing.start() }

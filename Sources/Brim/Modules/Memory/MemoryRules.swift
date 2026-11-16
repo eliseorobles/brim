@@ -251,7 +251,9 @@ enum MemoryRules {
     /// keeps per server). npm retitles itself, so its argv reads
     /// ["npm exec xcodebuildmcp@latest mcp", "", …]: words, not elements.
     static func isMCPWrapper(_ record: ProcessRecord) -> Bool {
-        let words = (record.arguments ?? []).flatMap { $0.split(separator: " ").map(String.init) }
+        // Typed: Swift 6.0 otherwise reads `?? []` as optional and takes Optional.flatMap.
+        let arguments: [String] = record.arguments ?? []
+        let words: [String] = arguments.flatMap { $0.split(separator: " ").map(String.init) }
         guard words.contains(where: { $0.lowercased().contains("mcp") }) else { return false }
         let tools = words.prefix(3).map { ($0 as NSString).lastPathComponent.lowercased() }
         return tools.contains("npx") || (tools.contains { $0 == "npm" || $0 == "npm-cli.js" } && words.contains("exec"))
