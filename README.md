@@ -1,272 +1,256 @@
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/logo-dark.svg">
-    <img src="docs/assets/readme/logo.svg" width="220" alt="Vorssaint logo">
-  </picture>
+  <img src="Resources/Brand/AppIcon-Default.png" width="128" height="128" alt="Brim app icon: a white brim mark on a blue-to-teal gradient">
 </p>
 
-<h1 align="center">Vorssaint</h1>
+<h1 align="center">Brim</h1>
 
 <p align="center">
-  One menu bar icon doing the job of a dozen paid Mac apps.<br>
-  Install only what you use.
+  <b>A free, open-source Mac menu bar app for developers who live in Claude Code.</b><br>
+  Run several Claude Code accounts side by side, keep a dev Mac's memory in check,<br>
+  and get a full system monitor and Mac toolkit in one place.
 </p>
 
 <p align="center">
-  <a href="https://vorssaint.com">Website</a> ·
-  <a href="#install">Install</a> ·
-  <a href="#everything-it-does">Features</a> ·
-  <a href="#private-by-default">Privacy</a> ·
-  <a href="CHANGELOG.md">Changelog</a> ·
-  <a href="mailto:hello@vorssaint.com">Contact</a> ·
-  <a href="https://discord.gg/M6BwWH4BJp">Discord</a>
+  <a href="LICENSE"><img alt="License: GPL-3.0-or-later" src="https://img.shields.io/badge/license-GPL--3.0--or--later-2E52DB"></a>
+  <img alt="macOS 14 or newer" src="https://img.shields.io/badge/macOS-14%2B-0DA8B3">
+  <img alt="Apple Silicon" src="https://img.shields.io/badge/Apple%20Silicon-arm64-0DA8B3">
+  <img alt="Swift 6" src="https://img.shields.io/badge/Swift-6-F05138">
+  <a href="https://github.com/eliseorobles/brim/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/eliseorobles/brim/actions/workflows/ci.yml/badge.svg"></a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/vorssaint/vorssaint-utils/releases"><img src="https://img.shields.io/github/v/release/vorssaint/vorssaint-utils?label=release&color=4c8dff" alt="Latest release"></a>
-  <a href="https://github.com/vorssaint/vorssaint-utils/releases"><img src="https://img.shields.io/github/downloads/vorssaint/vorssaint-utils/total?color=4c8dff" alt="Downloads"></a>
-  <a href="https://github.com/vorssaint/vorssaint-utils/actions/workflows/ci.yml"><img src="https://github.com/vorssaint/vorssaint-utils/actions/workflows/ci.yml/badge.svg?branch=main&event=push" alt="CI status"></a>
-  <a href="#what-you-need"><img src="https://img.shields.io/badge/macOS-14%2B%20Apple%20Silicon-black" alt="macOS 14 and newer, Apple Silicon"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue" alt="License GPL 3.0 or later"></a>
+  <a href="https://eliseorobles.github.io/brim/">Website</a> ·
+  <a href="#build-from-source">Build from source</a> ·
+  <a href="#faq">FAQ</a> ·
+  <a href="docs/PRIVACY.md">Privacy</a>
 </p>
 
-<p align="center">
-  <a href="https://buymeacoffee.com/vorssaint">
-    <img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" width="217" height="60" alt="Buy Me a Coffee">
-  </a>
-</p>
+---
 
-<p align="center">
-  For anything private, email
-  <a href="mailto:hello@vorssaint.com"><strong>hello@vorssaint.com</strong></a>.
-</p>
+**Brim is a free, open-source macOS menu bar app for Apple Silicon Macs.** It
+lets one person use several Claude Code accounts on the same Mac (each one's
+usage at a glance, automatic account picking, and moving a conversation to
+another account when one hits its limit), ends leftover dev processes when
+memory gets tight, and bundles a system monitor, Port Manager, Kill Process,
+Cleaner, Uninstaller, Homebrew manager, app updates, clipboard history, keep
+awake and a Dynamic Island. It has no account, no telemetry and no
+subscription. Brim is written in Swift, licensed GPL-3.0-or-later, and based on
+[Vorssaint](https://github.com/vorssaint/vorssaint-utils).
 
-<p align="center">
-  <a href="https://trendshift.io/repositories/53716?utm_source=repository-badge&amp;utm_medium=badge&amp;utm_campaign=badge-repository-53716" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/repositories/53716" alt="vorssaint/vorssaint-utils | Trendshift" width="250" height="55"></a>
-  <a href="https://trendshift.io/repositories/53716?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-53716" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/53716/weekly?language=Swift" alt="vorssaint/vorssaint-utils | Trendshift weekly ranking" width="250" height="55"></a>
-  <a href="https://trendshift.io/repositories/53716?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-53716" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/53716/monthly?language=Swift" alt="vorssaint/vorssaint-utils | Trendshift monthly ranking" width="250" height="55"></a>
-</p>
+## Why Brim
 
-<h2 align="center">Sponsors</h2>
+I pay for more than one Claude subscription, and each one renews its weekly
+limit on a different day. Switching between them meant signing out and back
+in, losing track of which account had room, and restarting conversations.
+Meanwhile, long agent sessions left dev servers, test runners and simulators
+behind, which slowly filled the Mac's memory.
 
-<p align="center">
-  Help keep Vorssaint free and open source. Share your product with Mac users.
-</p>
+Brim fixes both from the menu bar, next to the system tools I reach for every
+day. *(Eliseo Robles, author)*
 
-<table align="center">
-  <tr>
-    <td align="center" width="520">
-      <br>
-      <strong>Your product here</strong><br>
-      <sub>Your logo · Your name · Your link</sub><br><br>
-      <a href="SPONSORS.md"><strong>Become our first sponsor →</strong></a><br><br>
-    </td>
-  </tr>
-</table>
+## Features
 
-<p align="center">
-  <img src="docs/assets/readme/panel-mixer.png" width="196" alt="Volume mixer with per app sliders, one app boosted past 100 percent">
-  <img src="docs/assets/readme/panel-system.png" width="196" alt="System tab with temperatures, usage graphs and memory pressure">
-  <img src="docs/assets/readme/panel-controls.png" width="196" alt="Window controls with the app switcher and Dock features">
-  <img src="docs/assets/readme/panel-utilities.png" width="196" alt="Utilities with cleaner, Homebrew, media tools and clipboard">
-</p>
+Each feature can be turned off in Settings › Features. A feature that is off
+stops loading and asks for no permissions.
 
-Per app volume, a real system monitor, a better app switcher, window snapping, Dock previews, clipboard history, text snippets, a file shelf, an uninstaller. The utilities Mac users usually buy one by one, together behind a single menu bar icon, with no account, no telemetry and no subscription.
+### Claude Code accounts
 
-## Install only what you use
-
-Choose individual features or start with a preset. Uninstalled features stop loading and disappear from the interface; reinstalling restores their settings. Setup asks only for the permissions your choices need.
-
-<p align="center">
-  <img src="docs/assets/readme/features-hub.png" width="720" alt="The Features hub in Settings, installing and uninstalling whole features">
-</p>
-
-Reorder or hide panel sections, choose a compact layout, and export settings to another Mac or [keep them in your dotfiles](docs/TROUBLESHOOTING.md#keeping-settings-in-your-dotfiles). The app supports more than a dozen languages.
-
-## Everything it does
-
-### Sound
-
-- **Volume mixer.** Set volume per app, boost quiet audio past 100%, and pin or reorder favorites. No audio driver required.
-- **Per app output.** Play music through speakers while a call uses your headset.
-- **Output switcher.** Switch audio outputs with a shortcut and lower the volume when headphones disconnect.
-- **Microphone tools.** Choose a preferred input, adjust its level on supported devices, and apply available microphone mute or input-volume controls with one shortcut. Siri and some apps may still hear you; Mic Mute is not a privacy lock. Its indicator shows that the feature is on, not that every app receives silence.
-- **Music app blocker.** Prevent unwanted Music launches after detected playback-button presses. Requires Accessibility.
-
-### Know what your Mac is doing
-
-- **System monitor.** CPU, GPU, memory, temperatures, battery health and power use, with history graphs and a view of energy-hungry apps.
-- **Fan Control (beta).** Set manual fan speeds or temperature curves and monitor live RPM.
-- **Menu bar readouts.** Put your chosen readings, usage bars, battery time or fan speed directly in the menu bar.
-- **Network.** See live traffic, session totals and your local IP address, or run a speed test.
-- **Alerts.** Get notified about sustained CPU load, high temperatures, memory pressure, low disk space or low battery.
-
-### Windows and the Dock
-
-- **App switcher.** Switch between apps and windows with live previews, search and display filters. A simpler mode works without screen capture.
-- **Window layout.** Snap windows into layouts, move them between displays and restore earlier positions using shortcuts, screen edges or modifier-drag gestures.
-- **Dock Preview.** Hover over Dock icons to preview windows across desktops. Switch, close, move or snap them from the preview.
-- **Dock clicks.** Click an active app's Dock icon to minimize, hide or cycle through its windows.
-- **Maximize windows.** Use the green button to fill the screen without creating another Space.
-- **Fixed Space order.** Keep Spaces in the order you set instead of rearranging them by recent use. Turning it off restores your previous setting.
-- **Quit on close.** Quit selected apps when their last window closes.
-- **Quit and close protection.** Prevent accidental ⌘Q or ⌘W with a hold, double press or extra modifier, per app.
-
-<p align="center">
-  <img src="docs/assets/readme/quit-protection-hold.png" width="300" alt="The hold-to-confirm prompt showing progress below the Command-Q quit shortcut hint">
-</p>
-
-<p align="center">
-  <img src="docs/assets/readme/window-switcher.gif" width="540" alt="The window switcher showing live thumbnails of open windows">
-</p>
-
-### Keyboard and mouse
-
-- **Text snippets.** Expand short triggers into text with clipboard, date and time variables, or insert snippets from a searchable menu.
-- **Smooth scrolling.** Give your mouse wheel a fluid glide with adjustable speed and response.
-- **Pointer acceleration.** Disable mouse acceleration and restore your previous setting when turned off.
-- **Linear scrolling.** Make every mouse wheel notch scroll the same number of lines, however fast the wheel spins.
-- **Focus follows mouse.** Bring the window under the pointer forward after an adjustable pause.
-- **Scroll direction.** Invert vertical and horizontal mouse scrolling independently of the trackpad.
-- **Scroll sideways while holding a key.** Turn vertical wheel movement into horizontal scrolling while holding a chosen key.
-- **Side buttons.** Use mouse Back and Forward buttons in Finder, browsers and compatible apps.
-- **Mouse button shortcuts.** Assign keys to extra buttons and side wheels, or use button-drag gestures for Spaces and Mission Control.
-- **Middle click.** Turn a three-finger trackpad press into a middle click.
-- **Apps to leave alone.** Exclude chosen apps from mouse enhancements.
-- **Extra click filter.** Ignore accidental rapid clicks from worn mouse buttons without delaying normal clicks.
-- **Key debounce.** Filter repeated letters caused by a worn keyboard.
-- **Super key.** Use Caps Lock or a right-side modifier as a shortcut combination, with a separate tap action and app exclusions.
-- **Keyboard shortcuts.** Manage feature shortcuts in one place, including optional takeover of supported macOS shortcuts while a feature is active.
-
-### Clipboard, files and links
-
-- **Clipboard history.** Search local text, image and file history, pin favorites, preview entries and paste with shortcuts.
-- **Auto clear clipboard.** Clear the system clipboard after a delay, sleep or lock, while keeping saved history.
-- **Paste as plain text.** Paste without formatting while preserving the original clipboard content.
-- **Shelf.** Park files, text and links near your cursor while dragging, then drop or share them later.
-- **Finder shortcuts.** Move files with ⌘X and ⌘V, rename with F2, or paste copied images as PNG files.
-- **Clean URL.** Remove tracking parameters from links, manually or automatically.
-- **Disk image installer.** Install an app from a mounted disk image and eject it, with optional download cleanup.
-
-### Everyday tools
-
-- **Dynamic Island.** Keep music, notifications, calendars, timers, downloads and everyday controls around the camera cutout, or a simulated one on other Macs. Customize sections and shortcuts, with optional lyrics, a live equalizer, camera preview and file tools.
-- **AI agents.** Follow Claude, Codex, OpenCode and GitHub Copilot in the Dynamic Island: plan limits and when they reset where available, tokens, API value, models, projects and live work, with a notice when a long task finishes. Codex's banked resets can be used from there too, and each extra Codex account (`CODEX_HOME`) can have a limits card of its own. Copilot uses local CLI/app session logs; its token totals update when shutdown metrics arrive, and aggregate API-value estimates use base rates.
-- **Command Bar.** Search apps, windows, files, clipboard history, snippets and app menu commands from one field. Calculate, convert units, find emoji or run saved scripts.
-- **Quick panel.** Open a floating palette of favorite tools with ⌃⌘V.
-- **Quick toggles.** Switch appearance, hide desktop icons, eject disks, empty the Trash, lock the screen and more.
-- **Quit apps.** See every open app in one list and quit them one by one, all at once or all but the one in front.
-- **Radial menu.** Open a customizable wheel of apps, files, shortcuts and tools around the pointer, with profiles and submenus.
-- **Scratchpad.** Keep autosaved notes in tabs, with Markdown preview and export, in a floating window or Dynamic Island.
-- **Cleaning Mode.** Lock keyboard input while cleaning, with a black screen or a small visible indicator.
-
-### Capture and create
-
-- **Screen capture.** Switch between screenshots, recording, text recognition and color picking in one selector with a pixel magnifier.
-- **Screenshot.** Capture an area, window, screen or scrolling page. Annotate, crop, redact, add backgrounds and watermarks, pin captures, send them through the Share menu or share an expiring link.
-- **Screen recording.** Record with separate system-audio and microphone tracks. Trim, cut, add automatic zooms, blur private details and export video or GIFs, or share an expiring link.
-- **Camera preview.** Check your camera in a floating mirror or Dynamic Island before a call.
-- **Copy text from screen.** Recognize text offline from any screen area, or read a QR code.
-- **Color picker.** Copy a screen color as HEX, RGB, HSL or SwiftUI code.
-- **Media tools.** Compress and edit videos, batch-convert images, add watermarks, make GIFs and extract text, all locally.
-
-### App management
-
-- **App updates.** Check store apps, package-managed apps and supported developer feeds in one list. Install managed updates together or open an app's own updater.
-- **Cleaner.** Remove caches, logs and app leftovers, manually or on a schedule.
-- **Messaging downloads.** Review, organize or move messaging downloads to the Trash using retention rules.
-- **Uninstaller.** Remove apps and review their related caches, preferences and helpers before moving them to the Trash.
-- **Homebrew manager.** Search, install and remove formulae and casks without opening a terminal.
-- **Port manager.** Find processes listening on network ports and stop them with Kill Process when installed.
-
-### Energy and display
-
-- **Keep awake.** Keep your Mac working on a timer, with the lid closed, or while selected apps, power or external displays are present.
-- **Displays.** Control individual displays and brightness, with hardware control where supported, half or quarter steps for the brightness keys, optional extra dimming below a monitor's minimum, software dimming as a fallback, and the volume and mute of a monitor's built-in speakers.
-- **Extra brightness.** Use a MacBook Pro XDR display's HDR headroom to go beyond its normal maximum brightness.
-- **Bluetooth on sleep.** Disconnect Bluetooth during sleep and restore it on wake only if Vorssaint turned it off.
-
-## Install
-
-With [Homebrew](https://brew.sh):
+- **Several accounts, no signing out.** Each Claude Code account gets its own
+  config folder (`CLAUDE_CONFIG_DIR`), signed in once by Claude Code itself.
+  Brim signs each one in through a private browser window, so a browser that's
+  already signed in to claude.ai can't approve the wrong account.
+- **Usage at a glance.** Each account's weekly limit, its model-specific
+  limits and when they renew, in the menu bar panel and a Claude Code status
+  line.
+- **Shell commands.** `claude` starts on the account Brim picks (the one whose
+  weekly limit renews soonest), `cc <account>` starts on a named one, and `cx`
+  continues your last conversation on another account after `/exit`.
+- **Conversations follow you.** Every account folder holds a copy of every
+  conversation, so `/resume` lists them all and a conversation can continue on
+  any account.
+- **MCP servers per repo.** Every MCP server is on everywhere by default; you
+  can switch one off for a single repo, or add servers that only one repo uses.
+- **Hands off your credentials.** Brim never reads, copies or refreshes a
+  Claude sign-in. Claude Code keeps its own credentials for each folder.
 
 ```sh
-brew install --cask vorssaint
+claude                  # start on the account with the soonest weekly renewal
+cc work                 # start on the account labelled "work"
+# ...the account hits its limit: /exit, then
+cx                      # continue the same conversation on another account
+cx --to personal        # ...or on a specific one
 ```
 
-Or grab the disk image from the [releases page](https://github.com/vorssaint/vorssaint-utils/releases) and drag Vorssaint into Applications.
+### Memory
 
-Builds are signed with an Apple Developer ID and notarized, so macOS opens them without a fuss and your permissions survive updates.
+- Shows memory pressure, swap and compressed memory, plus what is actually
+  holding memory: leftover dev process groups (dev servers, test runners,
+  watchers whose editor or terminal is gone) and apps unused for hours.
+- Three levels: **Inform** (the panel lists it), **Notify** (one notification
+  per memory-tight episode, naming what holds the memory) and **Automatic**
+  (only while memory is tight, and only orphaned dev process groups, checked
+  again just before each one is ended).
+- A runaway brake ends a process whose memory footprint explodes (for
+  example, a test runner that grows by hundreds of gigabytes in minutes) and
+  logs what it did.
+- Spots the known macOS `fseventsd` memory leak and tells you how to clear it.
 
-## Uninstall
+### System monitor
 
-With Homebrew:
+CPU, GPU, memory, network, disk and power in the menu bar and panel, with
+alerts that ignore short spikes. Connected devices with battery levels, and
+fan control through a privileged helper.
 
-```sh
-brew uninstall --cask vorssaint
-```
+### Mac tools
 
-To remove Vorssaint completely, including its settings and permissions:
+| Tool | What it does |
+|---|---|
+| Port Manager | Lists listening ports and the process behind each one, and ends it |
+| Kill Process | Finds and ends processes, including ones that won't quit |
+| Cleaner | Finds caches, logs, developer files, old device backups, app leftovers and forgotten screenshots, and moves what you pick to the Trash |
+| Uninstaller | Removes an app together with the files it leaves around the system |
+| Homebrew | Manage formulae and casks, with Homebrew's public install counts |
+| App Updates | Checks your apps' own update feeds, the App Store and Homebrew casks for new versions |
 
-```sh
-./Tools/uninstall.sh
-```
+### Clipboard, keep awake and the Dynamic Island
 
-## Private by default
+- **Clipboard history** with search, pinned items, ⌘1 to ⌘9 pasting, images
+  and files, and paste as plain text. Content its source app marks as
+  concealed (password managers) is never recorded.
+- **Keep awake**, including closed-lid mode.
+- **Dynamic Island** around the notch, with Controls, Clipboard, System and AI
+  agents pages (Claude Code and Codex usage, plus a speed test).
 
-Vorssaint is local-first, with no account, analytics or tracking. The network is touched only by things you can see: update checks, the speed test, Homebrew actions, optional online lyric lookup, temporary screenshot or recording links and feedback you explicitly send. The full story is in the [privacy notes](docs/PRIVACY.md).
+## Requirements
 
-Permissions get the same treatment. Every one is optional, the app explains each in plain words, shows which features actually use it, and even tells you when a permission you granted is no longer needed by anything, with a shortcut to revoke it.
-
-<p align="center">
-  <img src="docs/assets/readme/permissions.png" width="720" alt="The Permissions page showing what each permission does, which features use it, and an unused permission warning">
-</p>
-
-See the [permissions guide](docs/PERMISSIONS.md) for which features need access and what remains available without it.
-
-## What you need
-
-- A Mac with Apple Silicon
 - macOS 14 Sonoma or newer
+- An Apple Silicon Mac (M1 or later)
 
-### Build it yourself
+## Build from source
+
+Brim builds with `build.sh` and plain `swiftc`: no Xcode project and no package
+dependencies. You need the Xcode Command Line Tools (`xcode-select --install`).
 
 ```sh
-git clone https://github.com/vorssaint/vorssaint-utils.git
-cd vorssaint-utils
-./build.sh --dev            # build the separate Developer variant
-./build.sh --dev --install  # install and launch it
+git clone https://github.com/eliseorobles/brim.git
+cd brim
+BRIM_SIGN_IDENTITY=- ./build.sh --dev --install   # builds and installs "Brim (Developer)" in /Applications
 ```
 
-Xcode Command Line Tools are the only requirement. The [contributing guide](CONTRIBUTING.md) covers the layout and conventions. Official builds come only from the maintainer: the GPL covers the source, while the Vorssaint name, icon and look are covered by [TRADEMARKS.md](TRADEMARKS.md), so forks need their own identity.
+`BRIM_SIGN_IDENTITY=-` signs the build ad hoc. To keep macOS privacy grants
+across rebuilds, set it to your own "Apple Development" or "Developer ID
+Application" certificate (its full name or SHA-1, from
+`security find-identity -v -p codesigning`). Fan control only works in builds
+signed by the maintainer's team, because the privileged fan helper accepts only
+an app with the same team signature. Everything else works in your own build.
 
-## When something misbehaves
+More commands (tests, selftests, the release build) are in
+[CONTRIBUTING.md](CONTRIBUTING.md). Troubleshooting is in
+[docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md).
 
-See [troubleshooting](docs/TROUBLESHOOTING.md) for launch problems, permissions and missing previews, or [support](SUPPORT.md) for help.
+## Permissions
 
-## Documentation
+Brim asks only for what the features you turn on need.
 
-- [Privacy](docs/PRIVACY.md), what does and does not leave your Mac
-- [Permissions](docs/PERMISSIONS.md), every macOS permission in plain words
-- [Troubleshooting](docs/TROUBLESHOOTING.md), the common fixes
-- [Contributing](CONTRIBUTING.md), build, layout and conventions
-- [Support](SUPPORT.md), where to get help
-- [Security](SECURITY.md), how to report a vulnerability
+| Permission | Used by |
+|---|---|
+| Accessibility | Keep awake (mouse jiggle), paste as plain text, the island's clipboard page, recording a shortcut |
+| Full Disk Access | Cleaner, Uninstaller |
+| Files and Folders | Cleaner (WhatsApp downloads, forgotten screenshots) |
+| Notifications | Cleaner, App Updates, monitor alerts, Claude accounts, Memory |
+| Automation (Finder) | Cleaner and Uninstaller, to move items to the Trash |
+| App Management | Homebrew, App Updates |
+| Bluetooth | Connected devices (peripheral battery levels) |
+| Administrator password | Installing the fan helper; the optional password-free closed-lid rule |
 
-## Community
+Details are in [docs/PERMISSIONS.md](docs/PERMISSIONS.md).
 
-Vorssaint went from first commit to the front of GitHub trending in three days, top of the Swift charts, and issues and pull requests have shaped every release since. Bug reports, feature ideas and translations are all welcome, starting from the [contributing guide](CONTRIBUTING.md).
+## Privacy
 
-Vorssaint is free and will stay that way. If it earned its place in your menu bar, a star helps other people find it, and a [coffee](https://buymeacoffee.com/vorssaint) keeps the maintainer awake, with or without the Keep awake feature.
+Everything Brim reads stays on the Mac. It has no account, no analytics, no
+crash reporting and no server of its own. It uses the network only when a
+feature you turned on needs it: App Updates asks your apps' update feeds, the
+App Store and Homebrew for new versions; Homebrew runs `brew`; the speed test
+downloads from Cloudflare; Claude and Codex usage come from `claude` and
+`codex` themselves. See [docs/PRIVACY.md](docs/PRIVACY.md).
 
-## Acknowledgements
+## Uninstalling
 
-- App icon designed by [@divisionseven](https://github.com/divisionseven)
+Settings › Advanced › Uninstall Brim completely removes the app and everything
+it set up. It first takes back the Claude Code status line and shell
+integration, then deletes Brim's Claude accounts state in `~/.config/brim/claude`
+(`~/.config/brim-dev/claude` for the Developer app), and the `brim` or
+`brim-dev` folder above it when nothing else is in it. From a checkout,
+`Tools/uninstall.sh` does the same (`Tools/uninstall.sh --dev` for the
+Developer app).
 
-## License
+## FAQ
 
-[GPL 3.0 or later](LICENSE), copyright 2026 Vorssaint. The license covers the source code; the Vorssaint name, logo and look are covered separately in [TRADEMARKS.md](TRADEMARKS.md).
+**What is Brim?**
+Brim is a free, open-source macOS menu bar app for Apple Silicon Macs. It
+combines a Claude Code multi-account manager, a memory manager for development
+machines, a system monitor and Mac utilities such as a Port Manager, Cleaner and
+Uninstaller.
 
-<p align="center">
-  <sub>Made by <a href="https://x.com/vorssaint">@vorssaint</a></sub>
-</p>
+**How do I use more than one Claude Code account on the same Mac?**
+Give each account its own Claude Code config folder with `CLAUDE_CONFIG_DIR`
+(for example `~/.claude-work`) and sign in to each one once. Brim sets this up
+for you, shows every account's usage, and adds the `claude`, `cc` and `cx`
+shell commands to start on, or move between, accounts without signing out.
+
+**Does Brim read or store my Claude credentials?**
+No. Each account's sign-in stays with Claude Code in that account's own folder
+and Keychain item. Brim never reads, copies or refreshes a token.
+
+**How do I continue a Claude Code conversation on another account when I hit a usage limit?**
+Type `/exit`, then run `cx`. Brim continues your latest conversation in that
+folder on another account with room, or on the one you name with
+`cx --to <account>`.
+
+**How do I see Claude Code usage limits for each account?**
+Brim's menu bar panel and its Claude Code status line show each account's
+weekly limit, model-specific limits and when they renew.
+
+**How do I free memory used by leftover dev servers and test runners on a Mac?**
+Brim's Memory module lists orphaned dev process groups (ones whose editor or
+terminal is gone) with their memory, and ends them with one click, or
+automatically while memory is tight.
+
+**How do I find which process is using a port on macOS?**
+Open Brim's Port Manager to see every listening port and the process behind it,
+and end it from there. Without Brim, run `lsof -nP -iTCP:3000 -sTCP:LISTEN`.
+
+**Is Brim free? Does it collect data?**
+Brim is free and open source under GPL-3.0-or-later. It has no telemetry, no
+analytics and no account.
+
+**Does Brim run on Intel Macs?**
+No. Brim needs an Apple Silicon Mac and macOS 14 or newer.
+
+**How is Brim related to Vorssaint?**
+Brim is a hard fork of [Vorssaint](https://github.com/vorssaint/vorssaint-utils),
+an open-source macOS menu bar toolkit. It keeps Vorssaint's monitor and Mac
+tools, removes the window, dock, mouse, keyboard and sound features, and adds
+the Claude Code accounts and Memory modules. As Vorssaint's
+[trademark terms](TRADEMARKS.md) require, it has its own name, icon, bundle ID
+and signing identity.
+
+**Is Brim made by Anthropic?**
+No. Brim is an independent project and is not affiliated with or endorsed by
+Anthropic. Claude and Claude Code are trademarks of Anthropic.
+
+## Contributing
+
+Issues and pull requests are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md)
+first, and report security problems as described in [SECURITY.md](SECURITY.md).
+
+## Credits and license
+
+Brim is built by [Eliseo Robles](https://eliseorobles.com)
+([@eliseorobles](https://github.com/eliseorobles)), Robles Consulting LLC.
+
+Brim is a modified version of Vorssaint, © 2026 Vorssaint, GPL-3.0-or-later.
+Brim's changes began on 2026-11-12 and are © 2026 Robles Consulting LLC. Brim
+is distributed under the same license, GPL-3.0-or-later: see
+[LICENSE](LICENSE). The Vorssaint name and branding belong to its maintainer
+([TRADEMARKS.md](TRADEMARKS.md)).

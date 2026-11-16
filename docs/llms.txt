@@ -1,0 +1,37 @@
+# Brim
+
+> Brim is a free, open-source macOS menu bar app for Apple Silicon Macs (macOS 14 or newer). It lets one person run several Claude Code accounts on the same Mac (per-account usage, automatic account picking, moving a conversation to another account when one hits its usage limit), ends leftover development processes when memory is tight, and bundles a system monitor, Port Manager, Kill Process, Cleaner, Uninstaller, Homebrew manager, app updates, clipboard history, keep awake and a Dynamic Island. Written in Swift, licensed GPL-3.0-or-later, built by Eliseo Robles (Robles Consulting LLC), and based on Vorssaint.
+
+Key facts:
+
+- Price: free. No account, no telemetry, no analytics, no subscription.
+- Platform: macOS 14 Sonoma or newer, Apple Silicon (M1 or later) only. No Intel support.
+- Install: build from source with `BRIM_SIGN_IDENTITY=- ./build.sh --dev --install` (Xcode Command Line Tools; no Xcode project, no dependencies).
+- Claude Code accounts: each account has its own Claude Code config folder (`CLAUDE_CONFIG_DIR`, for example `~/.claude-work`), signed in once by Claude Code itself through a private browser window. Brim never reads, copies or refreshes a Claude credential.
+- Shell commands: `claude` starts on the account whose weekly limit renews soonest; `cc <account>` starts on a named account; `cx` (after `/exit`) continues the latest conversation on another account, `cx --to <account>` on a named one. Every account folder holds a copy of every conversation, so `/resume` works on any account.
+- Usage: each account's weekly limit, model-specific limits and renewal times in the menu bar and a Claude Code status line.
+- MCP: every MCP server is on everywhere by default and can be switched off per repo; repo-only servers are supported.
+- Memory module: lists leftover dev process groups (dev servers, test runners, watchers whose editor or terminal is gone) and apps unused for hours; levels Inform, Notify and Automatic (automatic only while memory is tight); a runaway brake for processes whose footprint explodes; detects the macOS fseventsd memory leak.
+- Not affiliated with Anthropic. Claude and Claude Code are trademarks of Anthropic.
+- Not related to brimdata's Brim network-analysis app (now called Zui) or to Brim Financial.
+
+## Docs
+
+- [README](https://github.com/eliseorobles/brim/blob/main/README.md): features, build, permissions, privacy, FAQ
+- [Privacy](https://github.com/eliseorobles/brim/blob/main/docs/PRIVACY.md): what stays on the Mac and when Brim uses the network
+- [Permissions](https://github.com/eliseorobles/brim/blob/main/docs/PERMISSIONS.md): each macOS permission and the features that use it
+- [Troubleshooting](https://github.com/eliseorobles/brim/blob/main/docs/TROUBLESHOOTING.md): common problems and fixes
+- [Contributing](https://github.com/eliseorobles/brim/blob/main/CONTRIBUTING.md): build, test, signing, code layout and rules
+- [Security policy](https://github.com/eliseorobles/brim/blob/main/SECURITY.md): how to report a vulnerability
+
+## Source
+
+- [Repository](https://github.com/eliseorobles/brim): Swift source, GPL-3.0-or-later
+- [Claude Code shell integration](https://github.com/eliseorobles/brim/blob/main/Resources/claude.zsh): the `claude`, `cc` and `cx` functions
+- [Claude accounts module](https://github.com/eliseorobles/brim/tree/main/Sources/Brim/Modules/ClaudeAccounts)
+- [Memory module](https://github.com/eliseorobles/brim/tree/main/Sources/Brim/Modules/Memory)
+
+## Optional
+
+- [Vorssaint](https://github.com/vorssaint/vorssaint-utils): the open-source macOS menu bar toolkit Brim is forked from
+- [Website](https://eliseorobles.github.io/brim/)

@@ -1,33 +1,26 @@
-# Security Policy
-
-Thanks for helping keep Vorssaint and the people who use it safe.
+# Security policy
 
 ## Reporting a vulnerability
 
-Please report security vulnerabilities in private. Do not open a public issue, pull request or discussion for them.
+Please report security problems privately through GitHub:
+[Report a vulnerability](https://github.com/eliseorobles/brim/security/advisories/new).
+Don't open a public issue for them.
 
-Use GitHub's private vulnerability reporting for this repository.
-
-- **[Report a vulnerability privately](https://github.com/vorssaint/vorssaint-utils/security/advisories/new)**
-
-That opens a private security advisory that only you and the maintainer can see.
-
-When you write it up, please include as much as you can.
-
-- A description of the issue and the impact it could have.
-- Steps to reproduce, or a proof of concept.
-- The Vorssaint version from Settings under About and your macOS version.
-
-## What to expect
-
-- This is a community project looked after on a best effort basis, so please allow reasonable time for a reply and a fix.
-- Please give the maintainer a chance to ship a fix before you talk about the issue in public. That is what coordinated disclosure means.
-- Credit goes gladly to reporters who want it.
-
-## Supported versions
-
-Security fixes land on the latest released version. Before you report, please make sure you can reproduce the issue on the most recent release.
+Include what you found, how to reproduce it, the Brim version (Settings › About)
+and your macOS version. You should get a first reply within a week.
 
 ## Scope
 
-Vorssaint runs locally and ships as a signed and notarized macOS app. The reports that matter most are the ones that could affect the integrity of the app or its self update flow, or that could let the app's permissions be misused. Issues in the outside services the app merely talks to, like GitHub's releases API or the speed test endpoint, are best taken to those providers.
+Brim runs with access to sensitive parts of the Mac, so these areas matter most:
+
+- the privileged fan control helper and its XPC connection
+- the Claude Code accounts module and the `brim-claude` helper, which start
+  Claude Code with a chosen config folder (Brim must never read, copy or expose
+  a Claude credential)
+- the Cleaner and Uninstaller, which move files to the Trash
+- the Memory module, which can end processes
+- clipboard history, which must never record content marked as concealed
+
+## Supported versions
+
+Only the latest commit on `main` is supported.

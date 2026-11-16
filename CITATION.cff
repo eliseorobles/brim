@@ -1,0 +1,37 @@
+cff-version: 1.2.0
+message: "If you refer to Brim, please cite it as below."
+type: software
+title: "Brim"
+abstract: >-
+  Brim is a free, open-source macOS menu bar app for Apple Silicon Macs. It runs
+  several Claude Code accounts side by side (per-account usage, automatic
+  account picking, moving a conversation to another account), ends leftover
+  development processes when memory is tight, and bundles a system monitor,
+  Port Manager, Kill Process, Cleaner, Uninstaller, Homebrew manager, app
+  updates, clipboard history, keep awake and a Dynamic Island. It is a hard
+  fork of Vorssaint.
+authors:
+  - given-names: "Eliseo"
+    family-names: "Robles"
+  - name: "Robles Consulting LLC"
+repository-code: "https://github.com/eliseorobles/brim"
+url: "https://eliseorobles.github.io/brim/"
+license: GPL-3.0-or-later
+keywords:
+  - macOS
+  - menu bar app
+  - Claude Code
+  - multiple accounts
+  - usage limits
+  - system monitor
+  - memory management
+  - developer tools
+  - Swift
+  - SwiftUI
+references:
+  - type: software
+    title: "Vorssaint"
+    authors:
+      - name: "Vorssaint"
+    repository-code: "https://github.com/vorssaint/vorssaint-utils"
+    license: GPL-3.0-or-later

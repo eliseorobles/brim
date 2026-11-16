@@ -1,17 +1,12 @@
-<!-- Keep only the sections that help explain this change. -->
+## What this changes
 
-## Summary
+<!-- What and why. Link the issue it fixes, if any. -->
 
-Describe what changes and why. For a fix, explain the behavior before and after.
-Mention partial fixes or dependencies on another PR.
+## How it was tested
 
-## Verification
+- [ ] `./build.sh` builds without warnings
+- [ ] `./build/Brim --selftest` passes
+- [ ] `./build.sh --test` passes (or the failing group is unrelated and named here)
+- [ ] A test covers the change, and fails without it
 
-List checks actually run and their results, plus anything you could not test.
-Include Mac, macOS, display or language details when relevant to the behavior.
-See the [contribution guide](https://github.com/vorssaint/vorssaint-utils/blob/main/CONTRIBUTING.md#validation) for available checks.
-
-## Related issues
-
-<!-- If an issue exists, use one `Refs #123` per line. Avoid Closes/Fixes,
-which closes the report before the fix reaches a published version. -->
+By opening this pull request you agree to license your contribution under GPL-3.0-or-later.
