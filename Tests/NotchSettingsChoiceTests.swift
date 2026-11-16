@@ -20,18 +20,6 @@ enum NotchSettingsChoiceTests {
         let column = 16 + settingsRowTextInset
         let indentedColumn = column + settingsRowTextInset
         for (language, _) in LocalizationTests.languages {
-            let destinations = [FeatureStrings.notch(language).files, FeatureStrings.clipboard(language).title,
-                                FeatureStrings.scratchpad(language).pageTitle]
-            let choices = destinations.map { ($0, AnyView(Destination(language: language, title: $0))) }
-                + [(FeatureStrings.notchAgents(language).limitsAs, AnyView(Limits(language: language))),
-                   (FeatureStrings.notchClipboardSize(language).entrySize, AnyView(ClipboardEntrySize(language: language)))]
-            for (title, row) in choices {
-                let overflow = problems(row, width: narrowest, textColumn: column)
-                suite.expect(overflow.isEmpty, "\(language.rawValue): \(title) fits the narrowest Dynamic Island "
-                             + "options column (\(Int(narrowest)) points): \(overflow.joined(separator: "; "))")
-                suite.expect(drawsChoiceBesideTitle(row, width: 1000, segments: true),
-                             "\(language.rawValue): \(title) keeps its segments beside the title where they fit")
-            }
             let agents = FeatureStrings.notchAgents(language)
             let menus: [(String, AnyView, CGFloat)] = [
                 (agents.readout, AnyView(Readout(language: language)), indentedColumn),
@@ -61,8 +49,8 @@ enum NotchSettingsChoiceTests {
         // rules it out.
         for (installed, enabled) in [(true, true), (false, true), (true, false)] {
             FeatureRuntime.shared.installed = installed
-            let row = AnyView(SettingsFeatureSwitchRow(symbol: "text.quote", title: "Lyrics", isOn: .constant(true),
-                                                       feature: .notchLyrics, enabled: enabled))
+            let row = AnyView(SettingsFeatureSwitchRow(symbol: "sparkles", title: "AI agents", isOn: .constant(true),
+                                                       feature: .notchAgents, enabled: enabled))
             let toggle = switches(in: host(row, width: 500)).first
             let usable = installed && enabled
             suite.expect(toggle?.state == (usable ? NSControl.StateValue.on : .off) && toggle?.isEnabled == usable,

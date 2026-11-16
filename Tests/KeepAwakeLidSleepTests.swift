@@ -36,13 +36,11 @@ enum KeepAwakeLidSleepContract {
             }
         }
     }
-    enum BrightnessService {
-        static var lid: Bool? = true
-        static func lidClosed() -> Bool? { lid }
-    }
     /// Only the built-in panel this fixture models; a value the production
     /// code would treat as "the panel already reads asleep" is `nil`, not 0.
     enum LidDisplayDimmer {
+        static var lid: Bool? = true
+        static func lidClosed() -> Bool? { lid }
         static var reading: Double?
         static var written: [Double] = []
         /// True by default; set false to model the panel not being back in
@@ -78,9 +76,7 @@ enum KeepAwakeLidSleepContract {
     }
     static func IOServiceClose(_ value: Int) { closes += 1 }
     /// The root-domain general-interest observer the dimming feature keeps.
-    /// Registrations, releases and the queued callback are counted the same
-    /// way `DisplayRestorationTests` models `BrightnessService`'s own use of
-    /// this exact IOKit pattern.
+    /// Registrations, releases and the queued callback are counted.
     enum DimmingObserver {
         static var registrations = 0
         static var releasedObjects = 0
@@ -108,7 +104,7 @@ enum KeepAwakeLidSleepContract {
     }
     static func reset() -> Service {
         port = 1; results = [0]; calls = 0; closes = 0
-        policy = true; assertions = []; externalDisplay = false; connectedToPower = true; BrightnessService.lid = true
+        policy = true; assertions = []; externalDisplay = false; connectedToPower = true; LidDisplayDimmer.lid = true
         LidDisplayDimmer.reading = nil; LidDisplayDimmer.written = []; LidDisplayDimmer.writeSucceeds = true
         DimmingObserver.registrations = 0; DimmingObserver.releasedObjects = 0
         DimmingObserver.destroyedPorts = 0; DimmingObserver.callback = nil
@@ -179,7 +175,7 @@ enum KeepAwakeLidSleepTests {
         for lid in [true, false, nil] as [Bool?] {
             for policy in [true, false, nil] as [Bool?] {
                 let service = C.reset()
-                C.BrightnessService.lid = lid; C.policy = policy
+                C.LidDisplayDimmer.lid = lid; C.policy = policy
                 service.sleepIfLidAlreadyClosed()
                 expect(C.calls == (lid == true && policy == true ? 1 : 0),
                        "only a closed lid with an affirmative current policy can request sleep")
@@ -216,7 +212,7 @@ enum KeepAwakeLidSleepTests {
             service.sleepIfLidAlreadyClosed()
             switch change {
             case 0: service.isActive = true
-            case 1: C.BrightnessService.lid = false
+            case 1: C.LidDisplayDimmer.lid = false
             case 2: C.policy = false
             case 3: service.clamshellActive = true
             case 4: C.assertions = [connection]
@@ -226,7 +222,7 @@ enum KeepAwakeLidSleepTests {
             expect(C.calls == 1 && C.DispatchQueue.main.pending.isEmpty,
                    "each retry rechecks the session, lid and current system protection")
             service.isActive = false; service.clamshellActive = false
-            C.BrightnessService.lid = true; C.policy = true; C.assertions = []
+            C.LidDisplayDimmer.lid = true; C.policy = true; C.assertions = []
             C.DispatchQueue.main.advance()
             expect(C.calls == 1, "a canceled retry cannot resume after a later context change")
         }

@@ -9,13 +9,13 @@ import Foundation
 /// production check, both generated from source.
 enum NotchPresentationProbeArgumentTests {
     static func run(_ suite: TestSuite) {
-        let binary = "/Applications/Vorssaint (Developer).app/Contents/MacOS/VorssaintDeveloper"
+        let binary = "/Applications/Brim (Developer).app/Contents/MacOS/BrimDeveloper"
         for mode in Probe.Mode.allCases {
             suite.expect(Probe.isRequested(by: [binary, mode.rawValue]),
                          "\(mode.rawValue) on its own runs the presentation probe")
         }
-        suite.expect(Probe.isRequested(by: [binary, "--media-layout", "--glass"]),
-                     "--media-layout with --glass runs the presentation probe")
+        suite.expect(Probe.isRequested(by: [binary, "--quick-access-clicks", "--glass"]),
+                     "--quick-access-clicks with --glass runs the presentation probe")
         for launch in [[binary], [binary, "-featureAvailable.notch", "NO"], [binary, "--preview-notch-tour"]] {
             suite.expect(!Probe.isRequested(by: launch), "\(launch.dropFirst()) launches the app")
         }

@@ -248,16 +248,6 @@ enum MetricsFeatureTests {
         )
         suite.expect(Defaults.registeredDefaults[DiskMenuBarStyle.defaultsKey] as? String == "percent",
                      "disk menu bar style registers the existing percentage default")
-        suite.expect(SettingsBackupSupport.exportKeys().contains(DiskMenuBarStyle.defaultsKey),
-                     "disk menu bar style travels in settings backups")
-        for style in DiskMenuBarStyle.allCases {
-            let restored = SettingsBackupSupport.sanitizedSettings(from: [
-                SettingsBackupSupport.formatVersionKey: SettingsBackupSupport.formatVersion,
-                SettingsBackupSupport.settingsKey: [DiskMenuBarStyle.defaultsKey: style.rawValue],
-            ])
-            suite.expect(restored?[DiskMenuBarStyle.defaultsKey] as? String == style.rawValue,
-                         "settings backup restores disk menu bar style \(style.rawValue)")
-        }
         expectEqual(DiskMenuBarStyle.percent.value(for: diskDevice), "67%", "disk menu bar used percentage")
         expectEqual(DiskMenuBarStyle.percent.minimumValue, "100%", "percentage reserves percentage width")
         expectEqual(DiskMenuBarStyle.free.minimumValue, "1000 GB", "available space reserves numeric width")
@@ -1156,7 +1146,7 @@ enum MetricsFeatureTests {
                                        compressorPages: 0, tagStoragePages: 0) == 16,
                "memory used clamps impossible used memory")
 
-        var vmStats = vorssaint_vm_statistics64_rev3_t()
+        var vmStats = brim_vm_statistics64_rev3_t()
         vmStats.wire_count = 2
         vmStats.purgeable_count = 3
         vmStats.compressor_page_count = 4

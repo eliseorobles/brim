@@ -13,30 +13,6 @@ import VMStatisticsCompat
 
 enum UpdateFeatureTests {
     static func run(_ suite: TestSuite) {
-        suite.expect(BrightnessUpdatePromptInfo.isUpgrade(appVersion: "3.4.0-beta.7",
-                                                          previousVersion: "3.4.0-beta.6")
-                    && BrightnessUpdatePromptInfo.isUpgrade(appVersion: "3.4.0",
-                                                            previousVersion: "3.4.0-beta.6"),
-                    "the display setup invitation recognizes a newer release")
-        for previous in [nil, "", "dev", "3.4.0-beta.7", "3.4.0"] as [String?] {
-            suite.expect(!BrightnessUpdatePromptInfo.isUpgrade(appVersion: "3.4.0-beta.7",
-                                                               previousVersion: previous),
-                         "a first install, unknown version, unchanged release or downgrade does not invite: \(previous ?? "nil")")
-        }
-        suite.expect(BrightnessUpdatePromptInfo.needsSetup(
-            notchAvailable: true, brightnessAvailable: true, notchEnabled: true,
-            notchBrightness: true, brightnessEnabled: false),
-            "the invitation targets an enabled island with brightness waiting for display controls")
-        for (notchAvailable, brightnessAvailable, notchEnabled, notchBrightness, brightnessEnabled)
-            in [(false, true, true, true, false), (true, false, true, true, false),
-                (true, true, false, true, false), (true, true, true, false, false),
-                (true, true, true, true, true)] {
-            suite.expect(!BrightnessUpdatePromptInfo.needsSetup(
-                notchAvailable: notchAvailable, brightnessAvailable: brightnessAvailable,
-                notchEnabled: notchEnabled, notchBrightness: notchBrightness,
-                brightnessEnabled: brightnessEnabled),
-                "the invitation skips unavailable, unused or already configured display controls")
-        }
         func activeSet(_ permission: AppPermission,
                        available: Set<AppFeature> = Set(AppFeature.allCases),
                        on: Set<String> = [],
@@ -61,21 +37,6 @@ enum UpdateFeatureTests {
                        || $0 == DefaultsKey.clipboardHistoryShortcutEnabled
                }).contains(.clipboard),
                "the clipboard shortcut activates with both gates on")
-        suite.expect(GlobalShortcutRole.conflict(for: .commandBarDefault,
-                                           excluding: .quickLauncher,
-                                           isOn: { _ in false },
-                                           isAvailable: { _ in true }) == nil,
-               "a disabled feature does not reserve its saved shortcut")
-        suite.expect(GlobalShortcutRole.conflict(for: .commandBarDefault,
-                                           excluding: .quickLauncher,
-                                           isOn: { $0 == DefaultsKey.commandBarShortcutEnabled },
-                                           isAvailable: { _ in true }) == .commandBar,
-               "an enabled feature keeps its saved shortcut reserved")
-        suite.expect(GlobalShortcutRole.conflict(for: .commandBarDefault,
-                                           excluding: .quickLauncher,
-                                           isOn: { _ in true },
-                                           isAvailable: { $0 != .commandBar }) == nil,
-               "a feature hidden from the hub does not reserve its shortcut")
 
         // macOS stores its own shortcuts as [character, key code, modifier mask],
         // the mask in NSEvent.ModifierFlags bits. 1 is S, 655360 is shift+option
@@ -95,9 +56,6 @@ enum UpdateFeatureTests {
         suite.expect(GlobalShortcut.matchesSystemShortcut(optionShiftS,
                                                     symbolicHotKeys: systemAreaShot),
                "a combination macOS already answers is reported as taken")
-        suite.expect(!GlobalShortcut.matchesSystemShortcut(.screenshotDefault,
-                                                     symbolicHotKeys: systemAreaShot),
-               "the default screenshot shortcut stays clear of the system list")
         suite.expect(!GlobalShortcut.matchesSystemShortcut(
                     GlobalShortcut(keyCode: 1, modifiers: [.command, .shift]),
                     symbolicHotKeys: systemAreaShot),
@@ -126,14 +84,6 @@ enum UpdateFeatureTests {
         // The WindowServer table stores Carbon modifier bits. Arrow and F keys
         // carry the function-key bit there as well; it is a property of the key,
         // not a modifier the recorder ever records, so it must drop out.
-        suite.expect(GlobalShortcutModifiers(
-                    cgFlags: SpaceHopSupport.eventFlags(fromCarbonModifiers: 0x20000 | 0x100000))
-               == [.shift, .command],
-               "Carbon shift and command bits convert to the recorder's modifiers")
-        suite.expect(GlobalShortcutModifiers(
-                    cgFlags: SpaceHopSupport.eventFlags(fromCarbonModifiers: 0x40000 | 0x800000))
-               == [.control],
-               "the function-key bit on arrow and F keys is not a recorded modifier")
 
         // The live table is the authority. The preferences plist only lists
         // customised entries, so a factory ⌘⇧4 is absent from it and used to
@@ -158,8 +108,6 @@ enum UpdateFeatureTests {
         suite.expect(!GlobalShortcut.matchesLiveSystemShortcut(
                     GlobalShortcut(keyCode: 0xFFFF, modifiers: [.command, .shift]), entries: liveTable),
                "an unassigned key code never matches a live entry")
-        suite.expect(!GlobalShortcut.matchesLiveSystemShortcut(.screenshotDefault, entries: liveTable),
-               "the default screenshot shortcut stays clear of the live table")
         suite.expect(!GlobalShortcut.matchesLiveSystemShortcut(
                     GlobalShortcut(keyCode: 21, modifiers: [.command, .shift]), entries: []),
                "an empty live table reserves nothing")
@@ -184,93 +132,6 @@ enum UpdateFeatureTests {
                     symbolicHotKeys: nil),
                "a live match needs no plist at all")
 
-        let nativeShortcutRecordingCases: [(GlobalShortcutRole, Int32, GlobalShortcut)] = [
-            (.switcher, 1, .switcherDefault),
-            (.switcher, 2, GlobalShortcut(keyCode: Int64(kVK_Tab), modifiers: [.command, .shift])),
-            (.switcherWindow, 27, .switcherWindowDefault),
-            (.switcherWindow, 220, GlobalShortcut(keyCode: 94, modifiers: [.command, .shift])),
-        ]
-        for (role, id, shortcut) in nativeShortcutRecordingCases {
-            let live = [LiveSystemShortcut(id: id, shortcut: shortcut, enabled: true)]
-            let fallback = systemHotKey(String(id), enabled: true, keyCode: Int(shortcut.keyCode),
-                                        mask: Int(shortcut.modifiers.cgFlags.rawValue))
-            suite.expect(!GlobalShortcut.conflictsWithSystemShortcut(
-                shortcut, liveEntries: live, symbolicHotKeys: nil, role: role),
-                   "the switcher can record its own enabled native shortcut without system takeover")
-            suite.expect(!GlobalShortcut.conflictsWithSystemShortcut(
-                shortcut, liveEntries: [], symbolicHotKeys: fallback, role: role),
-                   "the switcher shortcut exception also respects remapped keys in the fallback table")
-            suite.expect(GlobalShortcut.conflictsWithSystemShortcut(
-                shortcut, liveEntries: live, symbolicHotKeys: fallback, role: .screenshot),
-                   "other tools cannot take the switcher's native shortcuts")
-            let overlapping = live + [LiveSystemShortcut(id: 30, shortcut: shortcut, enabled: true)]
-            suite.expect(GlobalShortcut.conflictsWithSystemShortcut(
-                shortcut, liveEntries: overlapping, symbolicHotKeys: nil, role: role),
-                   "the switcher still reports an unrelated system action assigned to the same keys")
-        }
-        suite.expect(GlobalShortcut.conflictsWithSystemShortcut(
-            .switcherWindowDefault,
-            liveEntries: [LiveSystemShortcut(id: 27, shortcut: .switcherWindowDefault, enabled: true)],
-            symbolicHotKeys: nil, role: .switcher),
-               "the native exception stays scoped to the corresponding switcher action")
-
-        suite.expect(UpdateInstallerSupport.progressStepAdvanced(from: nil, to: 0.004),
-               "the first known download fraction always publishes")
-        suite.expect(!UpdateInstallerSupport.progressStepAdvanced(from: 0.011, to: 0.019),
-               "fractions inside the same percent stay quiet")
-        suite.expect(UpdateInstallerSupport.progressStepAdvanced(from: 0.019, to: 0.021),
-               "crossing into the next percent publishes")
-        suite.expect(!UpdateInstallerSupport.progressStepAdvanced(from: 0.5, to: 0.5),
-               "an unchanged fraction stays quiet")
-
-        let updateCeiling = UpdateInstallerSupport.downloadCeilingBytes
-        suite.expect(UpdateInstallerSupport.downloadByteLimit(expectedBytes: 9_638_011) == 9_638_011,
-               "a download stops at the size the release advertises")
-        suite.expect(UpdateInstallerSupport.downloadByteLimit(expectedBytes: nil) == updateCeiling,
-               "an asset with no size still stops at the ceiling")
-        suite.expect(UpdateInstallerSupport.downloadByteLimit(expectedBytes: 0) == updateCeiling,
-               "a zero size is not a limit of zero")
-        suite.expect(UpdateInstallerSupport.downloadByteLimit(expectedBytes: updateCeiling + 1) == updateCeiling,
-               "an advertised size beyond the ceiling cannot raise it")
-
-        suite.expect(UpdateInstallerSupport.downloadIsUsable(status: 200,
-                                                       receivedBytes: 9_638_011,
-                                                       expectedBytes: 9_638_011),
-               "a complete asset download is handed to the installer")
-        suite.expect(!UpdateInstallerSupport.downloadIsUsable(status: 404,
-                                                        receivedBytes: 1_200,
-                                                        expectedBytes: 9_638_011),
-               "an error page is refused whatever it contains")
-        suite.expect(!UpdateInstallerSupport.downloadIsUsable(status: 200,
-                                                        receivedBytes: 4_000_000,
-                                                        expectedBytes: 9_638_011),
-               "a truncated body is refused")
-        suite.expect(!UpdateInstallerSupport.downloadIsUsable(status: 200,
-                                                        receivedBytes: 0,
-                                                        expectedBytes: nil),
-               "an empty body is refused even with no advertised size")
-        suite.expect(!UpdateInstallerSupport.downloadIsUsable(status: 200,
-                                                        receivedBytes: updateCeiling + 1,
-                                                        expectedBytes: nil),
-               "a body past the ceiling is refused with no advertised size")
-        suite.expect(UpdateInstallerSupport.downloadIsUsable(status: 200,
-                                                       receivedBytes: 9_638_011,
-                                                       expectedBytes: nil),
-               "a plausible body with no advertised size is accepted")
-
-        // The showcase loader is a @StateObject, so it can be released without
-        // `.onDisappear` running. Its session holds the download delegate, and
-        // that delegate's deinit is what deletes the scratch file, so the
-        // release path has to invalidate the session too.
-        let showcaseSource = (try? String(
-            contentsOfFile: "Sources/Vorssaint/Services/Update/UpdateShowcaseMedia.swift",
-            encoding: .utf8)) ?? ""
-        let showcaseDeinitBody = (showcaseSource.components(separatedBy: "\n    deinit {")
-            .dropFirst().first ?? "").components(separatedBy: "\n    }").first ?? ""
-        suite.expect(showcaseDeinitBody.contains("session?.invalidateAndCancel()"),
-               "a released showcase loader invalidates its session, freeing the delegate and its scratch file")
-        suite.expect(!showcaseDeinitBody.contains("finishTasksAndInvalidate"),
-               "a released showcase loader cancels its download instead of letting it finish")
 
         suite.expect(SettingsSearchSupport.matches(query: "", title: "Monitor"),
                "a blank settings search matches everything")
@@ -291,71 +152,11 @@ enum UpdateFeatureTests {
                "settings search finds a page by an option living inside it")
         suite.expect(!SettingsSearchSupport.matches(query: "lid", title: "Energy", keywords: []),
                "without keywords the same query stays a miss")
-        suite.expect(SettingsSearchSupport.matches(
-            query: "preview position",
-            title: FeatureStrings.screenshot(.enUS).pageTitle,
-            keywords: [FeatureStrings.screenshot(.enUS).previewPositionLabel]),
-               "preview position is a searchable Screenshot keyword")
-        suite.expect(SettingsSearchSupport.matches(query: "hide",
-                                             title: Strings.enUS.tabSwitcher,
-                                             keywords: [Strings.enUS.dockClickHide]),
-               "Dock hiding is findable through a localized Settings keyword")
-        let captureSearchKeywords = SettingsSearchSupport.screenCaptureKeywords(
-            Strings.enUS, language: .enUS)
-        suite.expect(SettingsSearchSupport.matches(
-                    query: "screenshot",
-                    title: FeatureStrings.screenshot(.enUS).screenCaptureTitle,
-                    keywords: captureSearchKeywords)
-                && SettingsSearchSupport.matches(
-                    query: "screen recording",
-                    title: FeatureStrings.screenshot(.enUS).screenCaptureTitle,
-                    keywords: captureSearchKeywords)
-                && SettingsSearchSupport.matches(
-                    query: "line breaks",
-                    title: FeatureStrings.screenshot(.enUS).screenCaptureTitle,
-                    keywords: captureSearchKeywords),
-               "Screen capture tools and their options find the one settings page")
 
-        let quickToolFeatures: [AppFeature] = [.quickLauncher, .micMute, .scratchpad, .cleaningMode]
-        let quickToolRows = SettingsSidebarSupport.items(
-            page: .quickTools, title: "Quick panel", icon: "wand.and.rays",
-            preferredFeatures: quickToolFeatures, includePage: false,
-            isAvailable: { quickToolFeatures.contains($0) },
-            featureTitle: { $0.rawValue })
-        let generalFeatures: [AppFeature] = [
-            .musicBlock, .mixer, .soundOutputSwitcher, .audioPriority,
-        ]
         let generalRows = SettingsSidebarSupport.items(
             page: .general, title: "General", icon: "gearshape",
-            preferredFeatures: [.musicBlock], includePage: true,
-            isAvailable: { generalFeatures.contains($0) },
-            featureTitle: { $0.rawValue })
-        let toolRows = generalRows + quickToolRows
-        func toolRow(_ feature: AppFeature) -> SettingsSidebarItem? {
-            toolRows.first { $0.id == .feature(feature) }
-        }
-        suite.expect(toolRow(.musicBlock)?.icon == AppFeature.musicBlock.symbolName
-                && toolRow(.mixer)?.icon == AppFeature.mixer.symbolName
-                && toolRow(.soundOutputSwitcher)?.icon == AppFeature.soundOutputSwitcher.symbolName
-                && toolRow(.audioPriority)?.icon == AppFeature.audioPriority.symbolName
-                && toolRow(.micMute)?.icon == AppFeature.micMute.symbolName
-                && toolRow(.scratchpad)?.icon == AppFeature.scratchpad.symbolName
-                && toolRow(.cleaningMode)?.icon == AppFeature.cleaningMode.symbolName,
-               "shared Settings pages expose every anchored tool with its own symbol")
-        suite.expect(toolRows.count == Set(toolRows.map(\.id)).count
-                && !quickToolRows.contains { $0.id == .page(.quickTools) }
-                && toolRow(.mixer)?.destination
-                    == FeatureSettingsDestination(.general, sectionAnchor: .mixer)
-                && toolRow(.soundOutputSwitcher)?.destination
-                    == FeatureSettingsDestination(.general, sectionAnchor: .soundOutputSwitcher)
-                && toolRow(.audioPriority)?.destination
-                    == FeatureSettingsDestination(.general, sectionAnchor: .audioPriority)
-                && SettingsSidebarSupport.selection(for: AppFeature.scratchpad.settingsDestination,
-                                                    in: toolRows) == .feature(.scratchpad)
-                && SettingsSidebarSupport.selection(for: AppFeature.audioPriority.settingsDestination,
-                                                    in: toolRows, preferredID: .feature(.audioPriority))
-                    == .feature(.audioPriority),
-               "flat tool rows keep unique identities and select the clicked tool")
+            preferredFeatures: [], includePage: true,
+            isAvailable: { _ in true }, featureTitle: { $0.rawValue })
         let menuBarDestination = FeatureSettingsDestination(
             .general, sectionAnchor: .panelConfiguration)
         let menuBarRow = SettingsSidebarItem(
@@ -368,109 +169,7 @@ enum UpdateFeatureTests {
                 for: menuBarDestination,
                 in: generalRows + [menuBarRow]) == .setting(.panelConfiguration),
             "General and its menu bar editor keep distinct sidebar selections")
-        func pageRow(_ page: SettingsPage) -> SettingsSidebarItem {
-            SettingsSidebarItem(id: .page(page), destination: FeatureSettingsDestination(page),
-                                title: "\(page)", icon: "")
-        }
-        let groupedRows = SettingsSidebarSupport.featureGroupRows(
-            windowsControls: [pageRow(.windowLayout), pageRow(.autoQuit), pageRow(.quitProtection)]
-                + [SettingsSidebarItem(id: .feature(.scrollInverter),
-                                       destination: AppFeature.scrollInverter.settingsDestination,
-                                       title: "Scroll", icon: "")],
-            utilities: quickToolRows + [pageRow(.urlCleaner), pageRow(.keyDebounce),
-                                        pageRow(.superKey), pageRow(.textSnippets),
-                                        pageRow(.radialMenu)])
-        suite.expect(groupedRows.windowsDock.map(\.id) == [.page(.windowLayout), .page(.autoQuit)]
-                && groupedRows.mouseKeyboard.map(\.id) == [
-                    .page(.quitProtection), .feature(.scrollInverter), .page(.keyDebounce),
-                    .page(.superKey), .page(.textSnippets)]
-                && groupedRows.files.map(\.id) == [.page(.urlCleaner)]
-                && groupedRows.sound.map(\.id) == [.feature(.micMute)]
-                && groupedRows.utilities.map(\.id) == [
-                    .feature(.quickLauncher), .feature(.scratchpad), .feature(.cleaningMode),
-                    .page(.radialMenu)],
-               "sidebar rows follow the Features page groups and other utilities stay put")
-        let scratchpadOnlyRows = SettingsSidebarSupport.items(
-            page: .quickTools, title: "Quick panel", icon: "wand.and.rays",
-            preferredFeatures: quickToolFeatures, includePage: false,
-            isAvailable: { $0 == .scratchpad },
-            featureTitle: { $0.rawValue })
-        suite.expect(scratchpadOnlyRows.count == 1
-                && scratchpadOnlyRows.first?.id == .feature(.scratchpad)
-                && SettingsSidebarSupport.selection(for: AppFeature.micMute.settingsDestination,
-                                                    in: scratchpadOnlyRows) == .feature(.scratchpad),
-               "the sidebar hides unavailable tools and keeps a visible selection for their page")
-        let scrollingRows = SettingsSidebarSupport.items(
-            page: .mouse, title: "Mouse", icon: "computermouse",
-            preferredFeatures: [.scrollInverter, .scrollHorizontal], includePage: false,
-            isAvailable: { [.scrollInverter, .scrollHorizontal].contains($0) },
-            featureTitle: { $0.rawValue })
-        let sidewaysOnlyRows = SettingsSidebarSupport.items(
-            page: .mouse, title: "Mouse", icon: "computermouse",
-            preferredFeatures: [.scrollInverter, .scrollHorizontal], includePage: false,
-            isAvailable: { $0 == .scrollHorizontal }, featureTitle: { $0.rawValue })
-        suite.expect(scrollingRows.count == 2
-                && Set(scrollingRows.map(\.id)) == [.feature(.scrollInverter),
-                                                    .feature(.scrollHorizontal)]
-                && scrollingRows[0].destination == scrollingRows[1].destination
-                && sidewaysOnlyRows.first?.id == .feature(.scrollHorizontal),
-               "tools sharing a section keep separate named rows")
-        let keyboardDestination = FeatureSettingsDestination(
-            .shortcuts, sectionAnchor: .keyboardBrightnessShortcuts)
-        let keyboardShortcutItem = SettingsSearchSupport.keyboardBrightnessShortcutItem(language: .enUS)
-        let shortcutPageItem = SettingsSearchItem(
-            id: .page(.shortcuts), destination: FeatureSettingsDestination(.shortcuts),
-            title: "Shortcuts", icon: "command")
-        let keyboardShortcutGroups = SettingsSearchSupport.groupedMatchingItems(
-            query: "keyboard brightness shortcuts",
-            items: [shortcutPageItem, keyboardShortcutItem],
-            isAvailable: { _ in true })
-        suite.expect(keyboardShortcutGroups.first?.id == .shortcuts
-                && keyboardShortcutGroups.first?.suggestions.first.map {
-                    SettingsSearchSupport.route(for: $0, isAvailable: { _ in true }).destination
-                } == keyboardDestination,
-               "keyboard brightness shortcut search reveals its own Shortcuts section")
-        let keyboardLightGroups = SettingsSearchSupport.groupedMatchingItems(
-            query: "keyboard light", items: [shortcutPageItem, keyboardShortcutItem],
-            isAvailable: { _ in true })
-        suite.expect(keyboardLightGroups.first?.suggestions.first.map {
-            SettingsSearchSupport.route(for: $0, isAvailable: { _ in true }).destination
-        } == keyboardDestination,
-               "searching the sidebar label also opens keyboard brightness shortcuts")
-        suite.expect(AppLanguage.allCases.allSatisfy { language in
-            let item = SettingsSearchSupport.keyboardBrightnessShortcutItem(language: language)
-            return SettingsSearchSupport.matches(
-                query: FeatureStrings.brightness(language).keyboardLight,
-                title: item.title, keywords: item.keywords)
-        }, "search finds keyboard brightness shortcuts by their sidebar name in every language")
 
-        let settingsFeatureTitles: [AppFeature: String] = [
-            .homebrew: "Homebrew",
-            .cameraPreview: "Camera Preview",
-            .screenRecorder: "Screen Recorder",
-            .micMute: "Mic Mute",
-            .diskImageInstaller: "Disk Image Installer",
-        ]
-        let featureSearchItems = SettingsSearchSupport.featureItems(language: .enUS) { feature in
-            settingsFeatureTitles[feature] ?? feature.rawValue
-        }
-        let expectedFeatureSearchDestinations: [(AppFeature, FeatureSettingsDestination)] = [
-            (.homebrew, FeatureSettingsDestination(.homebrew)),
-            (.cameraPreview, FeatureSettingsDestination(.quickTools, sectionAnchor: .cameraPreview)),
-            (.screenRecorder, FeatureSettingsDestination(.screenshot, sectionAnchor: .screenRecorder)),
-            (.micMute, FeatureSettingsDestination(.quickTools, sectionAnchor: .micMute)),
-            (.diskImageInstaller, FeatureSettingsDestination(.features)),
-        ]
-        for (feature, destination) in expectedFeatureSearchDestinations {
-            let item = featureSearchItems.first { $0.id == .feature(feature) }
-            suite.expect(item?.destination == destination,
-                   "\(settingsFeatureTitles[feature] ?? feature.rawValue) keeps its exact Settings destination")
-            suite.expect(item?.icon == feature.symbolName,
-                   "\(settingsFeatureTitles[feature] ?? feature.rawValue) uses its feature symbol")
-        }
-        suite.expect(featureSearchItems.count == AppFeature.allCases.count
-                && Set(featureSearchItems.map(\.id)).count == AppFeature.allCases.count,
-               "generated Settings feature results have one stable identity per feature")
 
         for language in AppLanguage.allCases {
             let pageTitle = FeatureStrings.clipboard(language).title
@@ -483,10 +182,6 @@ enum UpdateFeatureTests {
             let items = SettingsSearchSupport.combinedItems(
                 pageItems: [clipboardPage], featureItems: featureItems)
             let clipboardHistory = items.first { $0.id == .feature(.clipboardHistory) }
-            suite.expect(clipboardHistory?.title == FeatureStrings.commandBar(language).sourceClipboard
-                    && clipboardHistory?.destination
-                        == FeatureSettingsDestination(.clipboard, sectionAnchor: .clipboardHistory),
-                   "\(language.rawValue) labels and routes Clipboard history as a section result")
             suite.expect(items.contains { $0.id == .page(.clipboard) }
                     && clipboardPage.title != clipboardHistory?.title,
                    "\(language.rawValue) distinguishes Clipboard page and history search labels")
@@ -544,75 +239,11 @@ enum UpdateFeatureTests {
                    "the differently titled \(feature.rawValue) rows keep only the page identity")
         }
 
-        let dedicatedSettingsItems = [
-            SettingsSearchItem(id: .page(.features),
-                                destination: FeatureSettingsDestination(.features),
-                                title: "Features", icon: "square.grid.2x2",
-                                terms: [.init(["Homebrew"], feature: .homebrew),
-                                        .init(["Camera Preview"], feature: .cameraPreview)]),
-            SettingsSearchItem(id: .page(.appUpdates),
-                                destination: FeatureSettingsDestination(.appUpdates),
-                                title: "App Updates", icon: "arrow.down.app",
-                                keywords: ["Homebrew"]),
-            SettingsSearchItem(id: .page(.quickTools),
-                                destination: FeatureSettingsDestination(.quickTools),
-                                title: "Quick Tools", icon: "wand.and.rays",
-                                keywords: ["Camera Preview"]),
-            SettingsSearchItem(id: .page(.homebrew),
-                                destination: FeatureSettingsDestination(.homebrew),
-                                title: "Homebrew", icon: "shippingbox"),
-        ]
-        let combinedSettingsItems = SettingsSearchSupport.combinedItems(
-            pageItems: dedicatedSettingsItems,
-            featureItems: featureSearchItems)
-        suite.expect(combinedSettingsItems.filter {
-            $0.title == "Homebrew" && $0.destination == FeatureSettingsDestination(.homebrew)
-        }.count == 1
-                && combinedSettingsItems.contains { $0.id == .page(.homebrew) },
-               "the explicit Homebrew page result replaces its equivalent generated result")
-        suite.expect(combinedSettingsItems.filter {
-            $0.destination == FeatureSettingsDestination(.appUpdates)
-        }.count == 1
-                && combinedSettingsItems.contains { $0.id == .page(.appUpdates) },
-               "a structurally one-to-one App Updates result is deduplicated to the page")
-        suite.expect(combinedSettingsItems.contains { $0.id == .feature(.diskImageInstaller) },
-               "a differently named feature remains discoverable through its Features fallback")
-        suite.expect(combinedSettingsItems.first { $0.id == .page(.homebrew) }?.feature == .homebrew,
-               "a deduplicated Homebrew page result keeps its feature identity")
-        suite.expect(combinedSettingsItems.first { $0.id == .page(.features) }?.feature == nil,
-               "a generic page result that does not merge with a feature carries no feature identity")
-        suite.expect(combinedSettingsItems.first { $0.id == .feature(.diskImageInstaller) }?.feature
-                == .diskImageInstaller,
-               "a feature-only result carries its own feature identity")
 
         // MARK: Settings search routing
 
-        let homebrewPageItem = combinedSettingsItems.first { $0.id == .page(.homebrew) }!
-        let unavailableHomebrewRoute = SettingsSearchSupport.route(for: homebrewPageItem) { _ in false }
-        suite.expect(unavailableHomebrewRoute.destination == FeatureSettingsDestination(.features)
-                && unavailableHomebrewRoute.targetFeature == .homebrew,
-               "an unavailable Homebrew result preserves its identity and targets its Feature Hub row")
-        let availableHomebrewRoute = SettingsSearchSupport.route(for: homebrewPageItem) { _ in true }
-        suite.expect(availableHomebrewRoute.destination == FeatureSettingsDestination(.homebrew)
-                && availableHomebrewRoute.targetFeature == nil,
-               "an available Homebrew result still opens its own dedicated page with no row to reveal")
 
-        let cameraPreviewItem = featureSearchItems.first { $0.id == .feature(.cameraPreview) }!
-        let unavailableCameraRoute = SettingsSearchSupport.route(for: cameraPreviewItem) { $0 != .cameraPreview }
-        suite.expect(unavailableCameraRoute.destination == FeatureSettingsDestination(.features)
-                && unavailableCameraRoute.targetFeature == .cameraPreview,
-               "an unavailable grouped feature targets its own row even while its shared page stays visible")
-        let availableCameraRoute = SettingsSearchSupport.route(for: cameraPreviewItem) { _ in true }
-        suite.expect(availableCameraRoute.destination
-                == FeatureSettingsDestination(.quickTools, sectionAnchor: .cameraPreview)
-                && availableCameraRoute.targetFeature == nil,
-               "an available grouped feature keeps opening its anchored section directly")
 
-        let diskImageItem = featureSearchItems.first { $0.id == .feature(.diskImageInstaller) }!
-        let diskImageRoute = SettingsSearchSupport.route(for: diskImageItem) { _ in true }
-        suite.expect(diskImageRoute.destination == FeatureSettingsDestination(.features)
-                && diskImageRoute.targetFeature == .diskImageInstaller,
-               "Disk Image Installer, whose own destination is Features, still targets its exact row")
 
         let genericFeaturesItem = SettingsSearchItem(id: .page(.features),
                                                      destination: FeatureSettingsDestination(.features),
@@ -622,67 +253,10 @@ enum UpdateFeatureTests {
                 && genericFeaturesRoute.targetFeature == nil,
                "a generic Features selection carries no feature target")
 
-        let hiddenPageItem = SettingsSearchItem(id: .page(.shelf),
-                                                destination: FeatureSettingsDestination(.shelf),
-                                                title: "Shelf", icon: "tray.full")
-        let hiddenPageRoute = SettingsSearchSupport.route(for: hiddenPageItem) { _ in false }
-        suite.expect(hiddenPageRoute.destination == FeatureSettingsDestination(.features)
-                && hiddenPageRoute.targetFeature == nil,
-               "a page result with no merged feature identity still falls back to Features generically")
 
         // Window Layout stays in the sidebar for the green button override alone;
         // its page row keeps Window Layout's identity from the merge.
-        let windowLayoutPage = SettingsSearchItem(
-            id: .page(.windowLayout), destination: FeatureSettingsDestination(.windowLayout),
-            title: "Window Layout", icon: "rectangle.3.group",
-            terms: [.init(["Snap to edges"], feature: .windowLayout),
-                    .init(["Keep full screen in these apps"], feature: .windowMaximizer),
-                    .init([WindowStageManagerStrings.localized(.enUS).title])])
-        let windowLayoutItems = SettingsSearchSupport.combinedItems(
-            pageItems: [windowLayoutPage],
-            featureItems: SettingsSearchSupport.featureItems(language: .enUS) { $0.rawValue })
-        let mergedWindowLayout = windowLayoutItems.first { $0.id == .page(.windowLayout) }!
-        let maximizerOnly: (AppFeature) -> Bool = { $0 == .windowMaximizer }
-        let stageManagerMatches = SettingsSearchSupport.groupedMatchingItems(
-            query: "Stage Manager", items: windowLayoutItems,
-            isAvailable: maximizerOnly)
-        suite.expect(stageManagerMatches.map(\.id) == [.windowLayout],
-                     "Stage Manager reservation is searchable with only the green-button feature installed")
-        let maximizerOnlyRoute = SettingsSearchSupport.route(for: mergedWindowLayout, isAvailable: maximizerOnly)
-        let noneRoute = SettingsSearchSupport.route(for: mergedWindowLayout) { _ in false }
-        suite.expect(mergedWindowLayout.feature == .windowLayout
-                && maximizerOnlyRoute.destination == FeatureSettingsDestination(.windowLayout)
-                && maximizerOnlyRoute.targetFeature == nil
-                && noneRoute.destination == FeatureSettingsDestination(.features)
-                && noneRoute.targetFeature == .windowLayout,
-               "a page kept visible by another feature opens itself, and falls back to its hub row once hidden")
-        let exceptionGroups = SettingsSearchSupport.groupedMatchingItems(
-            query: "keep full screen", items: windowLayoutItems, isAvailable: maximizerOnly)
-        let snapGroups = SettingsSearchSupport.groupedMatchingItems(
-            query: "snap", items: windowLayoutItems, isAvailable: maximizerOnly)
-        let pageGroups = SettingsSearchSupport.groupedMatchingItems(
-            query: "window layout", items: windowLayoutItems, isAvailable: maximizerOnly)
-        suite.expect(exceptionGroups.map(\.id) == [.windowLayout]
-                && exceptionGroups.first?.suggestions.map(\.title) == ["Keep full screen in these apps"]
-                && snapGroups.isEmpty
-                && pageGroups.first?.id == .windowLayout && pageGroups.first?.parentMatches == true
-                && pageGroups.first.map { SettingsSearchSupport.route(for: $0.pageItem, isAvailable: maximizerOnly) }?
-                    .destination == FeatureSettingsDestination(.windowLayout),
-               "the maximizer alone keeps its settings and the page findable, without Window Layout's own settings")
 
-        let homebrewMatches = SettingsSearchSupport.matchingItems(
-            query: "  HOMEBREW ", items: combinedSettingsItems)
-        suite.expect(homebrewMatches.first?.destination == FeatureSettingsDestination(.homebrew)
-                && homebrewMatches.map(\.id)
-                    == [.page(.homebrew), .page(.features), .page(.appUpdates)],
-               "an exact Homebrew title ranks before earlier generic keyword matches")
-        let cameraPreviewMatches = SettingsSearchSupport.matchingItems(
-            query: "Camera Preview", items: combinedSettingsItems)
-        suite.expect(cameraPreviewMatches.first?.destination
-                == FeatureSettingsDestination(.quickTools, sectionAnchor: .cameraPreview)
-                && cameraPreviewMatches.map(\.id)
-                    == [.feature(.cameraPreview), .page(.features), .page(.quickTools)],
-               "an exact Camera Preview feature ranks before its page containers")
 
         let keywordBeforePartialTitle = SettingsSearchItem(
             id: .page(.features), destination: FeatureSettingsDestination(.features),
@@ -695,50 +269,8 @@ enum UpdateFeatureTests {
         suite.expect(partialMatches.map(\.id) == [.page(.appUpdates), .page(.features)],
                "partial title containment ranks before an earlier keyword-only match")
 
-        let tiedTitleMatches = [
-            SettingsSearchItem(id: .page(.quickTools),
-                               destination: FeatureSettingsDestination(.quickTools),
-                               title: "Camera Tools", icon: "wand.and.rays"),
-            SettingsSearchItem(id: .feature(.cameraPreview),
-                               destination: FeatureSettingsDestination(
-                                 .quickTools, sectionAnchor: .cameraPreview),
-                               title: "Camera Controls", icon: "web.camera"),
-        ]
-        suite.expect(SettingsSearchSupport.matchingItems(query: "camera", items: tiedTitleMatches)
-                .map(\.id) == tiedTitleMatches.map(\.id),
-               "Settings search preserves source order between equal-rank matches")
-        suite.expect(SettingsSearchSupport.matchingItems(query: "  \n", items: tiedTitleMatches)
-                .map(\.id) == tiedTitleMatches.map(\.id),
-               "a blank Settings query preserves every item in source order")
 
         // MARK: Grouped Settings search suggestions
-        let cameraGroups = SettingsSearchSupport.groupedMatchingItems(
-            query: "Camera Preview", items: combinedSettingsItems,
-            isAvailable: { _ in true })
-        suite.expect(cameraGroups.map(\.id) == [.quickTools, .features]
-                && cameraGroups.first?.pageItem.title == "Quick Tools",
-               "an exact utility match puts its main Settings page first")
-        suite.expect(cameraGroups.first?.parentMatches == false
-                && cameraGroups.first?.suggestions.map(\.title) == ["Camera Preview"]
-                && cameraGroups.first?.suggestions.first?.item.destination
-                    == FeatureSettingsDestination(.quickTools, sectionAnchor: .cameraPreview),
-               "a grouped utility row retains its exact anchored destination")
-        suite.expect(cameraGroups.last?.suggestions.map(\.title) == ["Camera Preview"],
-               "every other main page containing the query remains represented")
-        let installedCameraHubRoute = cameraGroups.last?.suggestions.first.map {
-            SettingsSearchSupport.route(for: $0, isAvailable: { _ in true })
-        }
-        suite.expect(installedCameraHubRoute?.destination == FeatureSettingsDestination(.features)
-                && installedCameraHubRoute?.targetFeature == .cameraPreview,
-               "an installed utility's Features result reveals its exact uninstall row")
-
-        let homebrewGroups = SettingsSearchSupport.groupedMatchingItems(
-            query: "Homebrew", items: combinedSettingsItems,
-            isAvailable: { _ in true })
-        suite.expect(homebrewGroups.map(\.id) == [.homebrew, .features, .appUpdates]
-                && homebrewGroups.first?.parentMatches == true
-                && homebrewGroups.first?.suggestions.isEmpty == true,
-               "a matching main page is shown once before grouped keyword matches")
 
         let settingPage = SettingsSearchItem(
             id: .page(.energy), destination: FeatureSettingsDestination(.energy),
@@ -756,63 +288,6 @@ enum UpdateFeatureTests {
                     query: " \n ", items: [settingPage],
                     isAvailable: { _ in true }).isEmpty,
                "a blank query does not replace the normal Settings sidebar with groups")
-
-        let availabilityPage = SettingsSearchItem(
-            id: .page(.quickTools), destination: FeatureSettingsDestination(.quickTools),
-            title: "Quick Tools", icon: "wand.and.rays",
-            terms: [.init(["Camera Preview", "Open camera automatically"], feature: .cameraPreview),
-                    .init(["Scratchpad Notes"], feature: .scratchpad)])
-        let availabilityHub = SettingsSearchItem(
-            id: .page(.features), destination: FeatureSettingsDestination(.features),
-            title: "Features", icon: "square.grid.2x2",
-            terms: [.init(["Camera Preview"], feature: .cameraPreview),
-                    .init(["scratchpad"], feature: .scratchpad)])
-        let availabilityFeatures = featureSearchItems.filter {
-            $0.id == .feature(.cameraPreview) || $0.id == .feature(.scratchpad)
-        }
-        let availabilityItems = [availabilityHub, availabilityPage] + availabilityFeatures
-        let onlyScratchpadAvailable: (AppFeature) -> Bool = { $0 == .scratchpad }
-        let unavailableCameraGroups = SettingsSearchSupport.groupedMatchingItems(
-            query: "camera", items: availabilityItems,
-            isAvailable: onlyScratchpadAvailable)
-        let unavailableCameraSuggestion = unavailableCameraGroups.first?.suggestions.first
-        let groupedUnavailableCameraRoute = unavailableCameraSuggestion.map {
-            SettingsSearchSupport.route(for: $0.item, isAvailable: onlyScratchpadAvailable)
-        }
-        suite.expect(unavailableCameraGroups.count == 1
-                && unavailableCameraGroups[0].id == .features
-                && unavailableCameraGroups[0].suggestions.map(\.title) == ["Camera Preview"]
-                && groupedUnavailableCameraRoute?.destination == FeatureSettingsDestination(.features)
-                && groupedUnavailableCameraRoute?.targetFeature == .cameraPreview,
-               "an unavailable utility remains navigable through its exact Features row")
-        suite.expect(SettingsSearchSupport.groupedMatchingItems(
-                    query: "automatically", items: availabilityItems,
-                    isAvailable: onlyScratchpadAvailable).isEmpty,
-               "setting fields owned by an unavailable utility stay out of suggestions")
-        let availableCameraSetting = SettingsSearchSupport.groupedMatchingItems(
-            query: "automatically", items: availabilityItems,
-            isAvailable: { _ in true }).first?.suggestions.first
-        let availableCameraSettingRoute = availableCameraSetting.map {
-            SettingsSearchSupport.route(for: $0, isAvailable: { _ in true })
-        }
-        suite.expect(availableCameraSetting?.title == "Open camera automatically"
-                && availableCameraSettingRoute?.destination
-                    == FeatureSettingsDestination(.quickTools, sectionAnchor: .cameraPreview)
-                && availableCameraSettingRoute?.targetFeature == nil,
-               "a feature-owned setting keyword opens its exact anchored section")
-        let availableScratchpadGroups = SettingsSearchSupport.groupedMatchingItems(
-            query: "scratchpad", items: availabilityItems,
-            isAvailable: onlyScratchpadAvailable)
-        suite.expect(availableScratchpadGroups.first?.id == .quickTools
-                && availableScratchpadGroups[0].suggestions.map(\.title)
-                    == ["scratchpad", "Scratchpad Notes"]
-                && availableScratchpadGroups[0].suggestions.first?.item.destination
-                    == FeatureSettingsDestination(.quickTools, sectionAnchor: .scratchpad),
-               "an installed utility remains searchable on a shared Settings page")
-        suite.expect(SettingsSearchSupport.groupedMatchingItems(
-                    query: "Quick Tools", items: availabilityItems,
-                    isAvailable: { _ in false }).isEmpty,
-               "a main page with no installed utilities is not suggested")
 
         let freshSize = SettingsWindowSupport.initialContentSize(savedWidth: 0, savedHeight: 0,
                                                                  availableHeight: 1200)
@@ -840,37 +315,6 @@ enum UpdateFeatureTests {
                "exact minimum size is valid")
         suite.expect(SettingsWindowSupport.isValidContentSize(width: 1000, height: 800),
                "larger size is valid")
-        let fullTourSize = CGSize(width: 600, height: 584)
-        let tourSettingsSize = CGSize(width: 772, height: 750)
-        let wideTourScreen = CGRect(x: -1600, y: 100, width: 1470, height: 900)
-        let wideTourPlacement = SettingsWindowSupport.tourPlacement(
-            settingsSize: tourSettingsSize, tourSize: fullTourSize, visibleFrame: wideTourScreen)
-        suite.expect(!wideTourPlacement.settings.intersects(wideTourPlacement.tour)
-                && wideTourPlacement.settings.maxX < wideTourPlacement.tour.minX,
-               "the complete tour fits beside Settings on a wide display")
-        suite.expect(wideTourScreen.contains(wideTourPlacement.settings)
-                && wideTourScreen.contains(wideTourPlacement.tour),
-               "tour placement respects external displays with offset coordinates")
-        let smallTourScreen = CGRect(x: 0, y: 0, width: 1280, height: 800)
-        let smallTourPlacement = SettingsWindowSupport.tourPlacement(
-            settingsSize: tourSettingsSize, tourSize: fullTourSize, visibleFrame: smallTourScreen)
-        suite.expect(smallTourScreen.contains(smallTourPlacement.settings)
-                && smallTourScreen.contains(smallTourPlacement.tour)
-                && smallTourPlacement.settings.size == tourSettingsSize
-                && smallTourPlacement.tour.size == fullTourSize,
-               "narrow displays keep the complete images and controls on screen without resizing")
-        let tallTourPlacement = SettingsWindowSupport.tourPlacement(
-            settingsSize: tourSettingsSize, tourSize: fullTourSize,
-            visibleFrame: CGRect(x: 200, y: -1700, width: 1000, height: 1600))
-        suite.expect(!tallTourPlacement.settings.intersects(tallTourPlacement.tour)
-                && tallTourPlacement.tour.minY > tallTourPlacement.settings.maxY,
-               "portrait displays stack the tour above Settings when both fit")
-        let oversizedTourPlacement = SettingsWindowSupport.tourPlacement(
-            settingsSize: CGSize(width: 1600, height: 1000), tourSize: fullTourSize,
-            visibleFrame: smallTourScreen)
-        suite.expect(smallTourScreen.contains(oversizedTourPlacement.tour)
-                && oversizedTourPlacement.settings.maxY == smallTourScreen.maxY - 20,
-               "an oversized Settings window cannot push the tour or its own title bar off screen")
         let preferredSettingsFrame = CGRect(x: -50, y: 100, width: 1000, height: 700)
         let overlappingPlacement = SettingsWindowSupport.panelPlacement(
             preferredFrame: preferredSettingsFrame,
@@ -894,15 +338,6 @@ enum UpdateFeatureTests {
                 && verticalPlacement.frame.maxY == 472,
                "vertical avoidance moves settings below the panel with the standard gap")
 
-        suite.expect(UpdateInstallerSupport.shouldForceAdminInstall(afterFailureCode: "fail-copy"),
-               "a copy failure retries through the admin prompt")
-        suite.expect(UpdateInstallerSupport.shouldForceAdminInstall(afterFailureCode: "fail-swap"),
-               "a swap failure retries through the admin prompt")
-        suite.expect(!UpdateInstallerSupport.shouldForceAdminInstall(afterFailureCode: "fail-verify"),
-               "a verification failure is not a permission problem")
-        suite.expect(!UpdateInstallerSupport.shouldForceAdminInstall(afterFailureCode: nil),
-               "no remembered failure means the normal path")
-
         let adminSource = AdminShell.appleScriptSource(
             command: #"printf "quoted" \ path"#,
             prompt: #"Approve "update" \ now"#)
@@ -919,133 +354,8 @@ enum UpdateFeatureTests {
         suite.expect(!cancelledScript.ok && cancelledScript.errorNumber == -128,
                "in-process AppleScript preserves cancellation as a failed request")
 
-        let hiddenLayout = WindowLayoutAction.hiddenActions(from: "leftHalf, restore,bogus")
-        suite.expect(hiddenLayout == [.leftHalf, .restore],
-               "hidden layout actions parse names and drop unknown ones")
-        suite.expect(WindowLayoutAction.hiddenActionsStorageValue([.restore, .leftHalf])
-                   == "leftHalf,restore",
-               "hidden layout actions serialize sorted for stable storage")
-        suite.expect(WindowLayoutAction.hiddenActions(from: "").isEmpty,
-               "an empty stored value hides nothing")
 
-        suite.expect(MediaSupport.inputMatchesTool(contentType: .jpeg, inputTypes: [.image]),
-               "a JPEG drop fits the image tool")
-        suite.expect(!MediaSupport.inputMatchesTool(contentType: .pdf, inputTypes: [.image]),
-               "a PDF drop does not fit the image tool")
-        suite.expect(!MediaSupport.inputMatchesTool(contentType: nil, inputTypes: [.image]),
-               "an unreadable content type is rejected")
-        suite.expect(MediaSupport.inputMatchesTool(contentType: .quickTimeMovie,
-                                             inputTypes: [.movie, .video]),
-               "a movie drop fits the video tools")
 
-        suite.expect(MediaSupport.outputGrew(originalBytes: 9_000, outputBytes: 12_000),
-               "a larger output earns the grew caption")
-        suite.expect(!MediaSupport.outputGrew(originalBytes: 12_000, outputBytes: 9_000),
-               "a smaller output does not")
-        suite.expect(!MediaSupport.outputGrew(originalBytes: 0, outputBytes: 12_000),
-               "an unknown original size never triggers the grew caption")
-
-        suite.expect(UpdateInstallerSupport.shellSingleQuoted("/Applications/My App.app")
-                   == "'/Applications/My App.app'",
-               "shell quoting wraps paths with spaces")
-        suite.expect(UpdateInstallerSupport.shellSingleQuoted("it's") == "'it'\\''s'",
-               "shell quoting survives embedded single quotes")
-        suite.expect(UpdateInstallerSupport.installFailureCode(fromMarker: "ok\n") == nil,
-               "an ok marker is not a failure")
-        suite.expect(UpdateInstallerSupport.installFailureCode(fromMarker: " fail-verify\n") == "fail-verify",
-               "a fail marker surfaces its step code")
-        suite.expect(UpdateInstallerSupport.installFailureCode(fromMarker: "") == nil,
-               "an empty marker is not a failure")
-        suite.expect(UpdateInstallerSupport.runsFromImmutableLocation(
-                   appPath: "/private/var/folders/ab/xyz/T/AppTranslocation/1F2/d/Vorssaint.app",
-                   volumeIsReadOnly: { _ in false }),
-               "translocated apps are flagged as not updatable in place")
-        suite.expect(UpdateInstallerSupport.runsFromImmutableLocation(appPath: "/Volumes/Vorssaint/Vorssaint.app",
-                                                                volumeIsReadOnly: { _ in true }),
-               "apps on a read-only volume (the DMG) are flagged as not updatable in place")
-        suite.expect(!UpdateInstallerSupport.runsFromImmutableLocation(appPath: "/Volumes/ExternalSSD/Vorssaint.app",
-                                                                 volumeIsReadOnly: { _ in false }),
-               "apps on a writable external volume stay updatable in place")
-        let installerScript = UpdateInstallerSupport.installerScript()
-        for step in ["fail-dmg-verify", "fail-tempdir", "fail-mount", "fail-no-app-in-dmg",
-                     "fail-copy", "fail-version", "fail-verify", "fail-swap", "note ok"] {
-            suite.expect(installerScript.contains(step),
-                   "installer script reports the \(step) step")
-        }
-        suite.expect(installerScript.contains("spctl --status"),
-               "installer script skips Gatekeeper assessment when the user disabled it")
-        let dmgVerification = installerScript.range(of: "DMG_VERIFY_REQ")
-        let dmgMount = installerScript.range(of: "/usr/bin/hdiutil attach")
-        suite.expect(dmgVerification != nil && dmgMount != nil
-               && dmgVerification!.lowerBound < dmgMount!.lowerBound,
-               "installer verifies the release signer before mounting the DMG")
-        suite.expect(installerScript.contains("BUNDLE_VERSION=")
-               && installerScript.contains("\"$BUNDLE_VERSION\" = \"$EXPECTED_VERSION\""),
-               "installer requires the signed app to match the offered release version")
-        suite.expect(installerScript.contains("chown -R"),
-               "an elevated install hands the bundle back to the user")
-        suite.expect(installerScript.contains("update-old.$PID"),
-               "the swap backup name is unique per run so a stale root-owned one never blocks it")
-        suite.expect(installerScript.contains("STAGE=\"$DIR/.$NAME.update-new\""),
-               "the staged copy is hidden so search never lists it under the staging name")
-        suite.expect(installerScript.contains("/bin/rm -rf \"$STAGE\" \"$DEST.update-new\""),
-               "a staged copy left under the old visible name is removed along with the hidden one")
-        suite.expect(installerScript.contains("launchctl asuser"),
-               "installer script relaunches as the user when running as root")
-        suite.expect(installerScript.contains("$RESULT.progress") && installerScript.contains("finalize"),
-               "installer markers stay in a progress file until the run finishes")
-        suite.expect(installerScript.contains("/usr/bin/sudo -n -u \"#$ASUSER\" /bin/sh -c")
-                && installerScript.contains("'/bin/echo \"$1\" > \"$2.progress\"' marker \"$1\" \"$RESULT\"")
-                && installerScript.contains("/usr/bin/sudo -n -u \"#$ASUSER\" /bin/mv -f")
-                && !installerScript.contains("note() { /bin/echo \"$1\" > \"$RESULT.progress\""),
-               "elevated marker writes drop to the original user's credentials")
-        let elevated = UpdateInstallerSupport.elevatedInstallCommand(
-            appPath: "/Applications/Vorssaint.app",
-            dmgPath: "/tmp/Vorssaint-update.dmg",
-            pid: 123,
-            resultPath: "/tmp/result",
-            uid: 501,
-            expectedVersion: "3.3.3")
-        suite.expect(elevated.contains("POSIX::setsid()") && elevated.hasSuffix("&"),
-               "elevated installer leaves this app's session so it outlives the app it replaces")
-        suite.expect(elevated.contains("nohup"),
-               "elevated installer keeps the nohup fallback if setsid is unavailable")
-        suite.expect(elevated.contains("'/Applications/Vorssaint.app'"),
-               "elevated installer passes the app path quoted for the shell")
-        suite.expect(elevated.contains("'3.3.3'"),
-               "elevated installer passes the expected version quoted for the shell")
-        // The script travels inline and is long; it must be spelled once, with
-        // both the setsid attempt and the fallback reusing the same "$@".
-        suite.expect(elevated.components(separatedBy: "DMG_VERIFY_REQ=").count == 2
-               && elevated.components(separatedBy: "\"$@\"").count == 3,
-               "elevated installer names its arguments once and reuses them for the fallback")
-
-        // The fallback branch has to be chosen on whether perl is there, never
-        // on an exit code: perl execs the payload, so the status the shell sees
-        // is the payload's own. Every `exit 1` inside the installer script would
-        // otherwise start the whole installer a second time, as root.
-        let detachRoot = FileManager.default.temporaryDirectory
-            .appendingPathComponent("VorssaintDetachTests-\(UUID().uuidString)")
-        try? FileManager.default.createDirectory(at: detachRoot, withIntermediateDirectories: true)
-        let detachPayload = detachRoot.appendingPathComponent("payload.sh")
-        let detachLedger = detachRoot.appendingPathComponent("runs")
-        try? "#!/bin/sh\n/bin/echo ran >> \"$1\"\nexit 1\n"
-            .write(to: detachPayload, atomically: true, encoding: .utf8)
-        let detachCommand = DetachedProcess.detachedShellCommand(
-            quotedArgv: ["/bin/sh", detachPayload.path, detachLedger.path]
-                .map(UpdateInstallerSupport.shellSingleQuoted)
-                .joined(separator: " "))
-        let foregroundDetachCommand = String(detachCommand.dropLast(2))
-        let detachResult = BoundedProcessRunner.run(
-            "/bin/sh", ["-c", foregroundDetachCommand], timeout: 2, maxOutputBytes: 1_024)
-        suite.expect(!detachResult.timedOut && detachResult.status == 1,
-                     "the foreground form of the detached command observes its payload exit")
-        func detachedRunCount() -> Int {
-            (try? String(contentsOf: detachLedger, encoding: .utf8))?
-                .split(separator: "\n").count ?? 0
-        }
-        suite.expect(detachedRunCount() == 1, "a detached command starts its payload once")
-        try? FileManager.default.removeItem(at: detachRoot)
 
         // A detached spawn is only detached if the child really is its own
         // session leader; `nohup` alone leaves it in ours.
@@ -1069,7 +379,7 @@ enum UpdateFeatureTests {
         // the same. 0/1/2 must still be open (on /dev/null), or the child's
         // first open() takes stdout's slot.
         let fdRoot = FileManager.default.temporaryDirectory
-            .appendingPathComponent("VorssaintDetachFDTests-\(UUID().uuidString)")
+            .appendingPathComponent("BrimDetachFDTests-\(UUID().uuidString)")
         try? FileManager.default.createDirectory(at: fdRoot, withIntermediateDirectories: true)
         let fdHolder = fdRoot.appendingPathComponent("holder")
         let fdReport = fdRoot.appendingPathComponent("report")
@@ -1080,7 +390,7 @@ enum UpdateFeatureTests {
         do {
             let probe = "{ /bin/echo leaked >&\(holderDescriptor); } 2>/dev/null; INHERITED=$?; "
                 + "{ /bin/echo stdio; } 2>/dev/null; STDIO=$?; "
-                + "/bin/echo \"$INHERITED $STDIO\" > \(UpdateInstallerSupport.shellSingleQuoted(fdReport.path))"
+                + "/bin/echo \"$INHERITED $STDIO\" > '\(fdReport.path.replacingOccurrences(of: "'", with: "'\\''"))'"
             let child = try DetachedProcess.spawn("/bin/sh", ["-c", probe])
             var reaped: Int32 = 0
             waitpid(child, &reaped, 0)
@@ -1098,116 +408,6 @@ enum UpdateFeatureTests {
         }
         close(holderDescriptor)
         try? FileManager.default.removeItem(at: fdRoot)
-
-        // MARK: - UpdateServiceSupport & SemVer channel reconciliation
-
-        let vStable = UpdateServiceSupport.SemanticVersion(raw: "3.3.3")
-        suite.expect(vStable?.major == 3 && vStable?.minor == 3 && vStable?.patch == 3 && !vStable!.isPrerelease,
-               "parses standard stable version")
-
-        let vBeta = UpdateServiceSupport.SemanticVersion(raw: "v3.3.4-beta.1")
-        suite.expect(vBeta?.major == 3 && vBeta?.minor == 3 && vBeta?.patch == 4 && vBeta!.isPrerelease,
-               "parses beta version with leading v")
-
-        let vBuild = UpdateServiceSupport.SemanticVersion(raw: "3.3.4-rc.2+20260822")
-        suite.expect(vBuild?.major == 3 && vBuild?.minor == 3 && vBuild?.patch == 4 && vBuild!.isPrerelease,
-               "parses version with build metadata")
-
-        // SemVer 2.0.0 ordering rules
-        suite.expect(UpdateServiceSupport.isNewer("3.3.4", than: "3.3.3"),
-               "newer major/minor/patch stable is newer")
-        suite.expect(!UpdateServiceSupport.isNewer("3.3.3", than: "3.3.4"),
-               "older stable is not newer")
-        suite.expect(UpdateServiceSupport.isNewer("3.3.4-beta.1", than: "3.3.3"),
-               "beta of higher version is newer than older stable")
-        suite.expect(UpdateServiceSupport.isNewer("3.3.4-beta.2", than: "3.3.4-beta.1"),
-               "beta.2 is newer than beta.1 of the same cycle")
-        suite.expect(UpdateServiceSupport.isNewer("3.3.4-rc.1", than: "3.3.4-beta.2"),
-               "rc.1 is newer than beta.2")
-        suite.expect(UpdateServiceSupport.isNewer("3.3.4", than: "3.3.4-beta.2"),
-               "final stable release is newer than beta of same version")
-        suite.expect(UpdateServiceSupport.isNewer("3.3.4", than: "3.3.4-rc.1"),
-               "final stable release is newer than rc of same version")
-        suite.expect(!UpdateServiceSupport.isNewer("3.3.3", than: "3.3.4-beta.1"),
-               "older stable is never newer than a beta of higher version (no downgrade)")
-        suite.expect(!UpdateServiceSupport.isNewer("3.3.4-beta.1", than: "3.3.4"),
-               "beta is not newer than the released final version")
-
-        suite.expect(UpdateServiceSupport.isNewer("3.4.0-beta.2.1", than: "3.4.0-beta.2")
-               && !UpdateServiceSupport.isNewer("3.4.0-beta.2", than: "3.4.0-beta.2.1")
-               && UpdateServiceSupport.isNewer("3.4.0-beta.3", than: "3.4.0-beta.2.1")
-               && UpdateServiceSupport.isNewer("3.4.0", than: "3.4.0-beta.2.1"),
-               "beta hotfixes follow their parent beta and precede the next beta and stable version")
-        let betaHotfix = UpdateServiceSupport.ReleaseCandidate(
-            tagName: "v3.4.0-beta.2.1", isPrerelease: true, isDraft: false,
-            dmgURL: URL(string: "https://example.com/update.dmg"), dmgExpectedBytes: 1000, body: "Hotfix")
-        suite.expect(UpdateServiceSupport.selectUpdate(from: [betaHotfix], currentVersion: "3.4.0-beta.2",
-                                                 includeBetas: true)?.tagName == betaHotfix.tagName
-               && UpdateServiceSupport.selectUpdate(from: [betaHotfix], currentVersion: "3.3.5",
-                                                     includeBetas: false) == nil,
-               "the beta channel offers the hotfix while the stable channel ignores it")
-
-        // Release candidate selection
-        let dummyDMG = URL(string: "https://github.com/vorssaint/vorssaint-utils/releases/download/v3.3.4/Vorssaint.dmg")!
-        let dummyBetaDMG = URL(string: "https://github.com/vorssaint/vorssaint-utils/releases/download/v3.3.4-beta.1/Vorssaint.dmg")!
-
-        let candidateList = [
-            UpdateServiceSupport.ReleaseCandidate(tagName: "v3.3.4-beta.1", isPrerelease: true, isDraft: false, dmgURL: dummyBetaDMG, dmgExpectedBytes: 1000, body: "Beta notes"),
-            UpdateServiceSupport.ReleaseCandidate(tagName: "v3.3.3", isPrerelease: false, isDraft: false, dmgURL: dummyDMG, dmgExpectedBytes: 1000, body: "Stable notes"),
-            UpdateServiceSupport.ReleaseCandidate(tagName: "v3.3.5-beta.1", isPrerelease: true, isDraft: true, dmgURL: dummyBetaDMG, dmgExpectedBytes: 1000, body: "Draft notes")
-        ]
-
-        let selectedStable = UpdateServiceSupport.selectUpdate(from: candidateList, currentVersion: "3.3.2", includeBetas: false)
-        suite.expect(selectedStable?.tagName == "v3.3.3", "stable channel only picks stable releases")
-
-        let selectedBeta = UpdateServiceSupport.selectUpdate(from: candidateList, currentVersion: "3.3.2", includeBetas: true)
-        suite.expect(selectedBeta?.tagName == "v3.3.4-beta.1", "beta channel picks highest non-draft release")
-
-        let selectedFromHigherBeta = UpdateServiceSupport.selectUpdate(from: candidateList, currentVersion: "3.3.4-beta.1", includeBetas: false)
-        suite.expect(selectedFromHigherBeta == nil, "user on beta turning off betas does not downgrade to older stable")
-
-        let knownDigest = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
-        suite.expect(UpdateServiceSupport.sha256Matches(Data("abc".utf8), expectedHex: knownDigest),
-               "update media accepts its pinned SHA-256 digest")
-        suite.expect(!UpdateServiceSupport.sha256Matches(Data("altered".utf8), expectedHex: knownDigest),
-               "update media rejects content that does not match its pinned digest")
-        suite.expect(!UpdateServiceSupport.sha256Matches(Data("abc".utf8), expectedHex: "invalid"),
-               "update media rejects a malformed pinned digest")
-
-        // Defaults registered
-        suite.expect(Defaults.registeredDefaults[DefaultsKey.includeBetaUpdates] as? Bool == false,
-               "includeBetaUpdates defaults to false in registeredDefaults")
-
-        let testDefaults = UserDefaults(suiteName: "com.vorssaint.tests.betaActivation")!
-        testDefaults.removePersistentDomain(forName: "com.vorssaint.tests.betaActivation")
-        Defaults.activateBetaChannelIfRunningBeta(in: testDefaults, version: "3.3.3-beta.1")
-        suite.expect(testDefaults.bool(forKey: DefaultsKey.includeBetaUpdates) == true,
-               "beta channel is activated automatically on a beta build")
-        testDefaults.set(false, forKey: DefaultsKey.includeBetaUpdates)
-        Defaults.activateBetaChannelIfRunningBeta(in: testDefaults, version: "3.3.3-beta.1")
-        suite.expect(testDefaults.bool(forKey: DefaultsKey.includeBetaUpdates) == false,
-               "manual opt-out on a beta build is preserved across launches")
-
-        // Stable version does not activate beta channel
-        let stableDefaults = UserDefaults(suiteName: "com.vorssaint.tests.stableActivation")!
-        stableDefaults.removePersistentDomain(forName: "com.vorssaint.tests.stableActivation")
-        Defaults.activateBetaChannelIfRunningBeta(in: stableDefaults, version: "3.3.3")
-        suite.expect(stableDefaults.object(forKey: DefaultsKey.includeBetaUpdates) == nil,
-               "stable release does not touch beta channel default")
-        stableDefaults.removePersistentDomain(forName: "com.vorssaint.tests.stableActivation")
-        testDefaults.removePersistentDomain(forName: "com.vorssaint.tests.betaActivation")
-
-        // Localization completeness & formatting
-        let originalLanguage = L10n.shared.language
-        for language in AppLanguage.allCases {
-            L10n.shared.language = language
-            let s = L10n.shared.s
-            suite.expect(!s.includeBetaUpdatesToggle.isEmpty, "\(language.rawValue) includeBetaUpdatesToggle non-empty")
-            suite.expect(!s.includeBetaUpdatesCaption.isEmpty, "\(language.rawValue) includeBetaUpdatesCaption non-empty")
-            suite.expect(!s.betaBadgeLabel.isEmpty, "\(language.rawValue) betaBadgeLabel non-empty")
-            suite.expect(!s.includeBetaUpdatesCaption.contains("—"), "\(language.rawValue) has no em dash")
-        }
-        L10n.shared.language = originalLanguage
 
         // MARK: Launch at login reconciliation
 
@@ -1237,109 +437,26 @@ enum UpdateFeatureTests {
                 && LaunchAtLoginSupport.startupAction(wanted: false, registration: .needsApproval,
                                                       locationIsUnstable: false) == .none,
                "an item awaiting approval in System Settings is never registered over (issue #260)")
+        suite.expect(LaunchAtLoginSupport.runsFromImmutableLocation(
+                   appPath: "/private/var/folders/ab/xyz/T/AppTranslocation/1F2/d/Brim.app",
+                   volumeIsReadOnly: { _ in false }),
+               "a translocated app is an unstable location for launch at login")
+        suite.expect(LaunchAtLoginSupport.runsFromImmutableLocation(appPath: "/Volumes/Brim/Brim.app",
+                                                                volumeIsReadOnly: { _ in true }),
+               "an app on a read-only volume (the DMG) is an unstable location for launch at login")
+        suite.expect(!LaunchAtLoginSupport.runsFromImmutableLocation(appPath: "/Volumes/ExternalSSD/Brim.app",
+                                                                 volumeIsReadOnly: { _ in false }),
+               "an app on a writable external volume is a stable location for launch at login")
         // `SMAppService.Status` cannot be driven without a real login item, so
         // what the service does with the third state is pinned by source. Both
         // needles are public symbols, not a line's spelling.
         let launchAtLoginSource = (try? String(
-            contentsOfFile: "Sources/Vorssaint/Services/LaunchAtLogin.swift",
+            contentsOfFile: "Sources/Brim/Services/LaunchAtLogin.swift",
             encoding: .utf8)) ?? ""
         suite.expect(launchAtLoginSource.contains(".requiresApproval"),
                "an approval-pending login item is read as its own state")
         suite.expect(launchAtLoginSource.contains("throw NeedsApprovalError()"),
                "turning launch at login on says so when only approval is missing")
-
-        // MARK: Release notes parsing
-
-        let changelog = """
-        # Changelog
-
-        ## [2.17.2] - 2026-06-17
-
-        ### Summary
-        This update keeps **Shelf** clear
-        and the update window centered.
-
-        ### Fixed
-        - **Shelf** no longer shows an extra outline.
-        - The update window opens centered
-          on the visible screen.
-
-        ### Added
-        - Coffee shortcut in the menu panel.
-        ![Menu bar temperature metrics](Resources/Images/menu-bar-temperature-metrics.png)
-
-        ### Website
-        - Official site: [vorssaint.com](https://vorssaint.com).
-
-        ## [2.17.1] - 2026-06-17
-
-        ### Fixed
-        - Older release note.
-        """
-        let notes = ReleaseNotes.notes(for: "2.17.2", changelog: changelog)
-        suite.expect(notes.version == "2.17.2", "release notes version is parsed")
-        suite.expect(notes.date == "2026-06-17", "release notes date is parsed")
-        suite.expect(notes.sections.count == 3, "release notes keep sections for the requested version")
-        suite.expect(notes.sections.first?.title == "Summary", "release notes first section title is parsed")
-        suite.expect(notes.sections.first?.paragraphItems.first == "This update keeps Shelf clear and the update window centered.",
-               "release notes parse summary paragraphs")
-        suite.expect(notes.sections.dropFirst().first?.title == "Fixed", "release notes fixed section title is parsed")
-        suite.expect(notes.sections.dropFirst().first?.bulletItems.first == "Shelf no longer shows an extra outline.",
-               "release notes strip simple markdown emphasis")
-        suite.expect(notes.sections.dropFirst().first?.bulletItems.dropFirst().first == "The update window opens centered on the visible screen.",
-               "release notes join continuation lines")
-        suite.expect(notes.sections.last?.bulletItems == ["Coffee shortcut in the menu panel."],
-               "release notes stop before the next version")
-        suite.expect(notes.sections.last?.items.last == .image(ReleaseNoteImage(alt: "Menu bar temperature metrics",
-                                                                          path: "Resources/Images/menu-bar-temperature-metrics.png")),
-               "release notes parse changelog images")
-        suite.expect(!notes.sections.contains(where: { $0.title == "Website" }),
-               "release notes hide website sections from the feature list")
-        let previewBodyWithoutSummaryHeading = """
-        ## [2.17.3]
-
-        A short release summary from the GitHub release body.
-
-        ### Fixed
-        - Preview bullet.
-        """
-        let previewNotes = ReleaseNotes.notes(for: "2.17.3", changelog: previewBodyWithoutSummaryHeading)
-        suite.expect(previewNotes.sections.first?.title == "Summary",
-               "release notes preserve an unheaded release-body summary paragraph")
-        suite.expect(previewNotes.sections.first?.paragraphItems.first == "A short release summary from the GitHub release body.",
-               "release notes keep summary text before the first subsection")
-        let githubReleaseBodyWithFooter = """
-        ### Fixed
-        - Update preview stays focused on changes.
-
-        Signed with an Apple Developer ID and notarized by Apple, so it downloads and opens normally. Requires macOS 14 or later. Open the .dmg below and drag Vorssaint to Applications.
-        """
-        let inAppUpdateBody = ReleaseNotes.inAppUpdateNotes(from: githubReleaseBodyWithFooter) ?? ""
-        suite.expect(!inAppUpdateBody.contains("Signed with an Apple Developer ID"),
-               "in-app update notes remove the GitHub installation footer")
-        let githubPreviewNotes = ReleaseNotes.notes(for: "2.17.4",
-                                                    changelog: "## [2.17.4]\n\n" + inAppUpdateBody)
-        suite.expect(githubPreviewNotes.sections.first?.bulletItems == ["Update preview stays focused on changes."],
-               "in-app update notes keep release changes after removing the footer")
-        let unreleasedChangelog = """
-        ## [Unreleased]
-
-        ### Added
-        - Feature pending release.
-
-        ## [2.17.4] - 2026-06-18
-
-        ### Fixed
-        - Shipped fix.
-        """
-        let unreleasedNotes = ReleaseNotes.notes(for: "Unreleased", changelog: unreleasedChangelog)
-        suite.expect(unreleasedNotes.version == "Unreleased" && unreleasedNotes.date == nil
-               && unreleasedNotes.sections.first?.bulletItems == ["Feature pending release."],
-               "release notes parse unreleased blocks without dates")
-        suite.expect(ReleaseNotes.allVersions(changelog: unreleasedChangelog) == ["2.17.4"],
-               "allVersions excludes the unreleased header")
-        suite.expect(ReleaseNotes.rawNotes(for: "dev", changelog: unreleasedChangelog).contains("Feature pending release."),
-               "rawNotes for dev falls back to the unreleased block")
 
         // MARK: App updates
 
@@ -1484,13 +601,6 @@ enum UpdateFeatureTests {
                "pinned packages and packages without a version stay out")
         suite.expect(packageRows.allSatisfy { $0.canInstallInPlace },
                "package rows can be installed on the spot")
-        let ownPackageRows = AppUpdatesSupport.packageUpdates(
-            outdated: [caskUpdate("vorssaint", installed: "3.1.12", current: "3.2.0")],
-            installed: [],
-            ignoredTokens: ["vorssaint"],
-            apps: [])
-        suite.expect(ownPackageRows.isEmpty,
-               "the app update list never offers to replace Vorssaint through its own package")
 
         let storeApps = [
             AppUpdatesSupport.InstalledApp(name: "Blocker", bundleID: "net.example.blocker",
@@ -1799,17 +909,16 @@ enum UpdateFeatureTests {
           {"token":"exact","version":"5.0","artifacts":[{"app":["Exact.app"]}],"depends_on":{"macos":{"==":["15"]}}},
           {"token":"rolling","version":"latest","artifacts":[{"app":["Rolling.app"]}]},
           {"token":"case-sensitive","version":"2.0","artifacts":[{"app":["Case.app"]}]},
-          {"token":"older","version":"1.0","artifacts":[{"app":["Older.app"]}]},
-          {"token":"own-tool","version":"9.0","artifacts":[{"app":["Own.app"]}]}
+          {"token":"older","version":"1.0","artifacts":[{"app":["Older.app"]}]}
         ]
         """#.utf8)
         let onlineCatalog = AppUpdatesSupport.parseOnlineCatalog(onlineCatalogBody) ?? []
-        suite.expect(onlineCatalog.count == 11
+        suite.expect(onlineCatalog.count == 10
                 && onlineCatalog.first?.bundleIDs == ["com.example.notes"]
                 && onlineCatalog.first?.minimumOSVersions == ["14"]
                 && onlineCatalog.first { $0.token == "writer" }?.appNames == ["Writer.app"],
                "the online catalog keeps final app names, explicit bundle identifiers and OS rules")
-        suite.expect(AppUpdatesSupport.parseOnlineCatalogResponse(onlineCatalogBody, statusCode: 200)?.count == 11
+        suite.expect(AppUpdatesSupport.parseOnlineCatalogResponse(onlineCatalogBody, statusCode: 200)?.count == 10
                 && AppUpdatesSupport.parseOnlineCatalogResponse(nil, statusCode: 200) == nil
                 && AppUpdatesSupport.parseOnlineCatalogResponse(onlineCatalogBody, statusCode: 500) == nil
                 && AppUpdatesSupport.parseOnlineCatalogResponse(Data("broken".utf8), statusCode: 200) == nil,
@@ -1840,13 +949,9 @@ enum UpdateFeatureTests {
             AppUpdatesSupport.InstalledApp(name: "Older", bundleID: "com.example.older",
                                            path: "/Applications/Older.app", version: "2.0",
                                            isFromAppStore: false),
-            AppUpdatesSupport.InstalledApp(name: "Own", bundleID: "com.example.own",
-                                           path: "/Applications/Own.app", version: "1.0",
-                                           isFromAppStore: false),
         ]
         let onlineRows = AppUpdatesSupport.onlineCatalogFindings(
-            apps: onlineApps, catalog: onlineCatalog, operatingSystemVersion: "15.7",
-            ignoredTokens: ["own-tool"]).items
+            apps: onlineApps, catalog: onlineCatalog, operatingSystemVersion: "15.7").items
         suite.expect(Set(onlineRows.map(\.name)) == ["Notes", "Writer", "Exact"]
                 && onlineRows.allSatisfy { $0.source == .onlineCatalog && !$0.isSelectable },
                "online matching requires an exact unique bundle name, uses an explicit ID to resolve ambiguity and keeps rows action-only")
@@ -1880,9 +985,8 @@ enum UpdateFeatureTests {
             operatingSystemVersion: "15.7").items.isEmpty,
                "multiple catalog entries claiming the same identity cannot choose an update by guesswork")
         suite.expect(!onlineRows.contains { $0.name == "Duplicate" || $0.name == "Future"
-                || $0.name == "Rolling" || $0.name == "Case" || $0.name == "Older"
-                || $0.name == "Own" },
-               "ambiguous, incompatible, uncomparable, differently cased, current and ignored catalog entries stay out")
+                || $0.name == "Rolling" || $0.name == "Case" || $0.name == "Older" },
+               "ambiguous, incompatible, uncomparable, differently cased and current catalog entries stay out")
         let externalCandidates = AppUpdatesSupport.onlineCatalogCandidates(
             apps: [onlineApps[0],
                    AppUpdatesSupport.InstalledApp(name: "Store", bundleID: "com.example.store",
@@ -2090,7 +1194,7 @@ enum UpdateFeatureTests {
         // folder and Simulator in Contents/Developer/Applications. Those count
         // as apps; helpers elsewhere in a bundle do not.
         let bundleFixture = FileManager.default.temporaryDirectory
-            .appendingPathComponent("vorssaint-bundled-apps-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("brim-bundled-apps-\(UUID().uuidString)", isDirectory: true)
         let host = bundleFixture.appendingPathComponent("Host.app", isDirectory: true)
         let tool = host.appendingPathComponent("Contents/Applications/Tool.app", isDirectory: true)
         let simulator = host.appendingPathComponent("Contents/Developer/Applications/Simulator.app",
@@ -2217,11 +1321,6 @@ enum UpdateFeatureTests {
                 && Defaults.registeredDefaults[DefaultsKey.appUpdatesNotify] as? Bool == true
                 && Defaults.registeredDefaults[DefaultsKey.panelUtilityAppUpdates] as? Bool == true,
                "the app update defaults are registered")
-        suite.expect(SettingsBackupSupport.exportKeys().contains(DefaultsKey.appUpdatesCheckFrequency)
-                && SettingsBackupSupport.exportKeys().contains(DefaultsKey.appUpdatesIncludeHomebrewApps)
-                && SettingsBackupSupport.exportKeys().contains(DefaultsKey.appUpdatesIncludeOnlineCatalog)
-                && !SettingsBackupSupport.exportKeys().contains(DefaultsKey.appUpdatesLastCheck),
-               "app update preferences travel in a backup, the last check does not")
         suite.expect(AppFeature.appUpdates.enabledKeys.isEmpty
                 && AppFeature.appUpdates.permissions == [.notifications, .appManagement]
                 && AppFeature.appUpdates.group == .tools,

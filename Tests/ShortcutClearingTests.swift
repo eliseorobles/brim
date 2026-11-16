@@ -5,13 +5,13 @@ import AppKit
 import Carbon.HIToolbox
 import Foundation
 
-/// The generator supplies the production row actions, registrars, takeover,
-/// recording lifecycle, snippet sync and backup import. Only OS calls, windows
+/// The generator supplies the production row actions, registrars, takeover
+/// and recording lifecycle. Only OS calls, windows, a second shortcut owner
 /// and unrelated feature services are doubles. No real hotkey or tap is installed.
 /// Native SwiftUI rendering and physical keyboard delivery remain integration checks.
 enum ShortcutClearingTests {
     enum UserDefaults {
-        static let suiteName = "vorss.tests.shortcut-clearing.\(UUID().uuidString)"
+        static let suiteName = "brim.tests.shortcut-clearing.\(UUID().uuidString)"
         static let standard = Foundation.UserDefaults(suiteName: suiteName)!
         static func reopened() -> Foundation.UserDefaults {
             Foundation.UserDefaults(suiteName: suiteName)!
@@ -82,7 +82,7 @@ enum ShortcutClearingTests {
         static func liveEntries() -> [LiveSystemShortcut]? {
             // A nonempty table avoids the production fallback to the real
             // macOS preferences plist. This disabled row reserves nothing.
-            let unused = LiveSystemShortcut(id: 511, shortcut: .shelfDefault, enabled: false)
+            let unused = LiveSystemShortcut(id: 511, shortcut: .notchDefault, enabled: false)
             return [unused] + shortcuts.map {
                 LiveSystemShortcut(id: $0.key, shortcut: $0.value, enabled: enabled[$0.key] ?? false)
             }
@@ -116,29 +116,20 @@ enum ShortcutClearingTests {
         func flagsChanged(with event: NSEvent) {}
     }
     enum ShortcutRecordingTap {
-        static var handler: ((Int64, GlobalShortcutModifiers, CGEventFlags) -> Void)?
-        static func begin(_ callback: @escaping (Int64, GlobalShortcutModifiers, CGEventFlags) -> Void) {
+        static var handler: ((Int64, GlobalShortcutModifiers) -> Void)?
+        static func begin(_ callback: @escaping (Int64, GlobalShortcutModifiers) -> Void) {
             handler = callback
         }
         static func end() { handler = nil }
         static func press(_ code: Int64, modifiers: GlobalShortcutModifiers = []) {
-            handler?(code, modifiers, [])
+            handler?(code, modifiers)
         }
-    }
-    final class AppSwitcher {
-        static let shared = AppSwitcher()
-        var capturing = false
-        func setCapturingShortcut(_ value: Bool) { capturing = value }
     }
     final class Suspension {
         var count = 0
         func suspendShortcut() { count += 1 }
-        func suspendShortcuts() { count += 1 }
     }
-    enum ShelfService { static let shared = Suspension() }
     enum ClipboardHistoryService { static let shared = Suspension() }
-    enum SoundOutputSwitcher { static let shared = Suspension() }
-    enum WindowLayoutService { static let shared = Suspension() }
     final class FeatureRuntime {
         static let shared = FeatureRuntime()
         var lastSynced: [AppFeature] = []
@@ -149,22 +140,14 @@ enum ShortcutClearingTests {
         }
     }
 
-    class LibraryState {
-        let hotkey = QuickToolHotkey(id: 19)
-        var shortcutRegistrationFailed = false
-        var isVisible = false
-        var hides = 0
-        var reloads = 0
-        func hide() { hides += 1; isVisible = false }
-        func reloadSnippets() { reloads += 1 }
-        func refreshPanelLayout() {}
-    }
+    /// Paste as plain text's key, held the way its service holds it, so a
+    /// cleared keep-awake shortcut can be checked against a second owner.
+    static let pastePlainHotkey = QuickToolHotkey(id: 19)
     class RowState {
         struct English { let s = Strings.enUS }
         let l10n = English()
         let role: GlobalShortcutRole
         var includeInactiveConflicts = true
-        var additionalConflict: (GlobalShortcut) -> String? = { _ in nil }
         var errorText: String?
         var pendingTakeOver: GlobalShortcut?
         var changes = 0
@@ -178,7 +161,16 @@ enum ShortcutClearingTests {
 
     static func sync(_ role: GlobalShortcutRole) {
         if role == .keepAwake { HotkeyManager.shared.syncWithPreferences() }
-        if role == .snippetLibrary { Library.shared.syncWithPreferences() }
+        if role == .pastePlain {
+            let defaults = UserDefaults.standard
+            let enabled = defaults.bool(forKey: role.feature.availabilityKey)
+                && role.requiredEnableKeys.allSatisfy { defaults.bool(forKey: $0) }
+            if let shortcut = assigned(role), enabled {
+                pastePlainHotkey.sync(enabled: true, shortcut: shortcut, storageKey: role.storageKey)
+            } else {
+                pastePlainHotkey.unregister()
+            }
+        }
     }
     static func assigned(_ role: GlobalShortcutRole) -> GlobalShortcut? {
         role.assignedShortcut(storedValue: { UserDefaults.standard.string(forKey: $0) })
@@ -190,7 +182,7 @@ enum ShortcutClearingTests {
         let registration = defaults.volatileDomain(forName: Foundation.UserDefaults.registrationDomain)
         defaults.register(defaults: Defaults.registeredDefaults)
         defaults.register(defaults: AppFeature.availabilityDefaults)
-        for role in [GlobalShortcutRole.keepAwake, .snippetLibrary] {
+        for role in [GlobalShortcutRole.keepAwake, .pastePlain] {
             defaults.set(true, forKey: role.feature.availabilityKey)
             for key in role.requiredEnableKeys { defaults.set(true, forKey: key) }
         }
@@ -200,9 +192,9 @@ enum ShortcutClearingTests {
         let systemShortcut = GlobalShortcut(keyCode: Int64(kVK_ANSI_4), modifiers: [.command, .shift])
         FeatureRuntime.shared.onSync = { features in
             if features.contains(.keepAwake) { sync(.keepAwake) }
-            if features.contains(.textSnippets) { sync(.snippetLibrary) }
-            if features.contains(.colorPicker) {
-                extra.sync(enabled: true, shortcut: extraShortcut, storageKey: DefaultsKey.colorPickerShortcut)
+            if features.contains(.pastePlain) { sync(.pastePlain) }
+            if features.contains(.notch) {
+                extra.sync(enabled: true, shortcut: extraShortcut, storageKey: DefaultsKey.notchShortcut)
             }
         }
         defer {
@@ -210,7 +202,7 @@ enum ShortcutClearingTests {
             HotkeyManager.shared.setEnabled(false)
             QuickToolHotkey.unregisterAll()
             SystemShortcutTakeover.restoreAll()
-            for role in [GlobalShortcutRole.keepAwake, .snippetLibrary] {
+            for role in [GlobalShortcutRole.keepAwake, .pastePlain] {
                 SystemShortcutTakeover.setTakeOver(role.storageKey, false)
             }
             FeatureRuntime.shared.onSync = { _ in }
@@ -219,8 +211,10 @@ enum ShortcutClearingTests {
             defaults.setVolatileDomain(registration, forName: Foundation.UserDefaults.registrationDomain)
         }
 
-        for role in [GlobalShortcutRole.keepAwake, .snippetLibrary] {
-            let other: GlobalShortcutRole = role == .keepAwake ? .snippetLibrary : .keepAwake
+        // Keep Awake is the one shortcut that can be cleared; paste as plain
+        // text is the other owner its freed combination can go to.
+        for role in [GlobalShortcutRole.keepAwake] {
+            let other = GlobalShortcutRole.pastePlain
             let row = Row(role)
             let otherRow = Row(other)
             row.rawValue = "invalid"
@@ -229,15 +223,13 @@ enum ShortcutClearingTests {
                          "\(role) corrupt preferences retain the production fallback")
             row.reset()
             otherRow.reset()
-            extra.sync(enabled: true, shortcut: extraShortcut, storageKey: DefaultsKey.colorPickerShortcut)
+            extra.sync(enabled: true, shortcut: extraShortcut, storageKey: DefaultsKey.notchShortcut)
             let attempts = registrationAttempts
             sync(role)
             suite.expect(registrationAttempts == attempts && isRegistered(role.defaultShortcut),
                          "\(role) sync keeps one existing registration")
 
             // This is the same action wired to X. Clearing must keep the feature on.
-            Library.shared.isVisible = true
-            let hides = Library.shared.hides
             row.pendingTakeOver = replacement
             row.errorText = "old error"
             row.clear()
@@ -245,9 +237,8 @@ enum ShortcutClearingTests {
                          && row.errorText == nil && row.pendingTakeOver == nil,
                          "\(role) X clears the preference, registration and pending row state")
             suite.expect(role.requiredEnableKeys.allSatisfy { defaults.bool(forKey: $0) }
-                         && Library.shared.isVisible && Library.shared.hides == hides
                          && isRegistered(other.defaultShortcut) && isRegistered(extraShortcut),
-                         "\(role) clear keeps the feature, visible library and other shortcuts available")
+                         "\(role) clear keeps the feature and other shortcuts available")
             let clearedAttempts = registrationAttempts
             sync(role)
             suite.expect(registrationAttempts == clearedAttempts,
@@ -267,22 +258,6 @@ enum ShortcutClearingTests {
             let reopened = UserDefaults.reopened()
             suite.expect(role.assignedShortcut(storedValue: { reopened.string(forKey: $0) }) == nil,
                          "\(role) remains cleared for a fresh preferences reader")
-            let payload = SettingsBackupSupport.payload(appVersion: "test") { defaults.object(forKey: $0) }
-            do {
-                let data = try PropertyListSerialization.data(fromPropertyList: payload, format: .xml, options: 0)
-                let decoded = try PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
-                if let decoded, let restored = SettingsBackupSupport.sanitizedSettings(from: decoded) {
-                    row.reset()
-                    Backup.apply(settings: restored)
-                    sync(role)
-                    suite.expect(assigned(role) == nil && !isRegistered(role.defaultShortcut),
-                                 "\(role) backup import removes an intervening assignment and releases its key")
-                } else {
-                    suite.expect(false, "\(role) exported backup can be decoded and validated")
-                }
-            } catch {
-                suite.expect(false, "\(role) backup serializes without error \(error)")
-            }
 
             // Once another feature uses the freed key, Reset must not steal it.
             otherRow.save(role.defaultShortcut)
@@ -302,11 +277,6 @@ enum ShortcutClearingTests {
             suite.expect(assigned(role) == replacement && isRegistered(replacement)
                          && !isRegistered(role.defaultShortcut),
                          "\(role) replacement releases its previous combination")
-            row.additionalConflict = { _ in "window layout" }
-            row.reset()
-            suite.expect(assigned(role) == replacement && row.errorText != nil && isRegistered(replacement),
-                         "\(role) reset respects the caller's additional conflict check")
-            row.additionalConflict = { _ in nil }
             SymbolicHotKeys.shortcuts = [28: role.defaultShortcut]
             SymbolicHotKeys.enabled = [28: true]
             row.reset()
@@ -320,11 +290,10 @@ enum ShortcutClearingTests {
             row.clear()
             refuseRegistration = true
             row.reset()
-            suite.expect(role == .keepAwake ? HotkeyManager.shared.registrationFailed
-                         : Library.shared.shortcutRegistrationFailed,
+            suite.expect(HotkeyManager.shared.registrationFailed,
                          "\(role) reports a refused registration")
             row.clear()
-            suite.expect(!HotkeyManager.shared.registrationFailed && !Library.shared.shortcutRegistrationFailed,
+            suite.expect(!HotkeyManager.shared.registrationFailed,
                          "\(role) clear removes the stale registration error")
             refuseRegistration = false
 
@@ -364,12 +333,10 @@ enum ShortcutClearingTests {
             recorder.invalidAction = { invalidCaptures += 1 }
             for key in [kVK_Delete, kVK_ForwardDelete] {
                 row.reset()
-                let holders = [ShelfService.shared, ClipboardHistoryService.shared,
-                               SoundOutputSwitcher.shared, WindowLayoutService.shared]
-                let suspensionCounts = holders.map(\.count)
+                let suspensionCount = ClipboardHistoryService.shared.count
                 recorder.beginRecording()
-                suite.expect(ShortcutCapture.isCapturing && registrations.isEmpty && AppSwitcher.shared.capturing
-                             && holders.map(\.count) == suspensionCounts.map { $0 + 1 },
+                suite.expect(ShortcutCapture.isCapturing && registrations.isEmpty
+                             && ClipboardHistoryService.shared.count == suspensionCount + 1,
                              "recording \(role) suspends both registrars and every other shortcut holder")
                 ShortcutRecordingTap.press(Int64(key))
                 suite.expect(!ShortcutCapture.isCapturing && ShortcutRecordingTap.handler == nil
@@ -408,8 +375,8 @@ enum ShortcutClearingTests {
                 field.beginRecording()
                 let delayedDelivery = ShortcutRecordingTap.handler
                 cancel(field)
-                delayedDelivery?(Int64(kVK_Delete), [], [])
-                suite.expect(!ShortcutCapture.isCapturing && !AppSwitcher.shared.capturing
+                delayedDelivery?(Int64(kVK_Delete), [])
+                suite.expect(!ShortcutCapture.isCapturing
                              && ShortcutRecordingTap.handler == nil && capturesAfterExit == 0
                              && assigned(role) == replacement
                              && isRegistered(replacement) && isRegistered(other.defaultShortcut)
@@ -417,7 +384,7 @@ enum ShortcutClearingTests {
                              "\(role) \(name) cancels capture and restores the unchanged bindings")
             }
             suite.expect(Set(FeatureRuntime.shared.lastSynced)
-                         == Set(GlobalShortcutRole.allCases.map(\.feature)).union([.windowLayout]),
+                         == Set(GlobalShortcutRole.allCases.map(\.feature)),
                          "capture restores every feature in the production suspension contract")
             let denied = RecorderButton()
             denied.window?.acceptsFocus = false
@@ -434,7 +401,7 @@ enum ShortcutClearingTests {
             for key in role.requiredEnableKeys { defaults.set(true, forKey: key) }
             row.reset()
         }
-        let unsupported = Row(.shelf)
+        let unsupported = Row(.clipboard)
         let previous = unsupported.rawValue
         unsupported.clear()
         suite.expect(unsupported.rawValue == previous && unsupported.changes == 0,

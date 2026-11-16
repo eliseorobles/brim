@@ -13,14 +13,19 @@ dist/
 *.mobileprovision
 *.keychain-db
 
-# Local-only working notes
+# Local-only working notes and the maintainer's private ticket log
 AGENTS.md
 CLAUDE.md
+Brim/TICKETS.md
 
 # macOS noise
 .DS_Store
 
-# Xcode / SwiftPM user state
+# Python bytecode from the test generator scripts
+__pycache__/
+
+# Editor and Xcode / SwiftPM user state
+.vscode/
 *.xcodeproj
 xcuserdata/
 .swiftpm/

@@ -70,7 +70,7 @@ enum TestHarnessTests {
         let reference = TestFormat.parse("%1$d items in %2$@")?.arguments
         suite.expect(reference == [1: "d", 2: "@"], "format arguments have explicit identities")
         suite.expect(TestFormat.parse("%2$@: %1$d")?.arguments == reference,
-                     "a translation can reorder arguments while keeping their identities")
+                     "a format can reorder arguments while keeping their identities")
         suite.expect(TestFormat.parse("%1$@ %2$d")?.arguments != reference,
                      "swapping argument types is rejected even when the conversion letters match")
         suite.expect(TestFormat.parse("%ld")?.arguments != TestFormat.parse("%lf")?.arguments,
@@ -82,16 +82,14 @@ enum TestHarnessTests {
         }
 
         struct TextFixture { let title: String; let statusFormat: String }
-        let base = TextFixture(title: "Ready", statusFormat: "%1$d in %2$@")
         let invalidText = TestSuite()
-        LocalizationTests.check(TextFixture(title: " \n", statusFormat: "%1$@ in %2$d"),
-                                against: base, name: "fixture", suite: invalidText)
+        LocalizationTests.check(TextFixture(title: " \n", statusFormat: "%1$d %1$@"),
+                                name: "fixture", suite: invalidText)
         suite.expect(invalidText.failures.count == 2,
-                     "localization validation detects missing text and unsafe argument swaps")
-        let revisedText = TestSuite()
-        LocalizationTests.check(TextFixture(title: "A different valid phrase", statusFormat: "%2$@: %1$d"),
-                                against: base, name: "fixture", suite: revisedText)
-        suite.expect(revisedText.failures.isEmpty,
-                     "valid editorial changes and safe argument reordering remain allowed")
+                     "string validation detects missing text and an argument used with two types")
+        let validText = TestSuite()
+        LocalizationTests.check(TextFixture(title: "Ready", statusFormat: "%2$@: %1$d"),
+                                name: "fixture", suite: validText)
+        suite.expect(validText.failures.isEmpty, "text with reordered positional arguments is allowed")
     }
 }

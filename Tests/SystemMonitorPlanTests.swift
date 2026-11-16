@@ -12,7 +12,6 @@ enum SystemMonitorPlanTests {
         var notchDetailNeeds = SystemMonitorPanelNeeds.none
         var fullMonitorVisible = false
         var notchVisible = false
-        var notchAccessoryMonitoring = false
         static var fanTelemetryAvailable: Bool { true }
     }
 
@@ -26,7 +25,7 @@ enum SystemMonitorPlanTests {
     }
 
     static func run(_ suite: TestSuite) {
-        let domain = "com.vorssaint.tests.system-monitor-plan"
+        let domain = "brim.tests.system-monitor-plan"
         let defaults = UserDefaults(suiteName: domain)!
         defaults.removePersistentDomain(forName: domain)
         defer { defaults.removePersistentDomain(forName: domain) }

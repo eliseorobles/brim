@@ -5,30 +5,17 @@
 import PackageDescription
 
 let package = Package(
-    name: "Vorssaint",
+    name: "Brim",
     platforms: [.macOS(.v14)],
     targets: [
-        .systemLibrary(
-            name: "CoreAudioTapCompat",
-            path: "Sources/CoreAudioTapCompat"
-        ),
-        .systemLibrary(
-            name: "HIDEventSystem",
-            path: "Sources/HIDEventSystem"
-        ),
         .systemLibrary(
             name: "VMStatisticsCompat",
             path: "Sources/VMStatisticsCompat"
         ),
-        .target(
-            name: "RecorderGIFCodec",
-            path: "Sources/RecorderGIFCodec",
-            sources: ["RecorderGIFCodec.c", "vendor/cgif/cgif_raw.c"]
-        ),
         .executableTarget(
-            name: "Vorssaint",
-            dependencies: ["VMStatisticsCompat", "HIDEventSystem", "CoreAudioTapCompat", "RecorderGIFCodec"],
-            path: "Sources/Vorssaint"
+            name: "Brim",
+            dependencies: ["VMStatisticsCompat"],
+            path: "Sources/Brim"
         )
     ]
 )

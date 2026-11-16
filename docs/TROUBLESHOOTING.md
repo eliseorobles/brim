@@ -1,157 +1,63 @@
 # Troubleshooting
 
-A quick guide to the snags people hit most. If none of it helps, jump to [reporting a useful bug](#reporting-a-useful-bug) at the end.
+## A feature does nothing
 
-The permission and uninstall commands below all point at Vorssaint's bundle identifier, `com.vorssaint.utils`.
+Most features need a macOS permission ([permissions](PERMISSIONS.md)).
 
-## The app will not open
+1. Open System Settings › Privacy & Security and find the permission.
+2. Make sure Brim (or Brim (Developer)) is listed and on.
+3. If it is on and still does nothing, turn it off and on again.
 
-Official Vorssaint builds are signed with an Apple Developer ID and notarized, so they open with no security warning.
-
-If you built the app yourself or grabbed an unofficial copy, macOS Gatekeeper may stop it on the first launch. To open it anyway, do one of these.
-
-1. Right click, or Control click, Vorssaint in Applications, choose Open, and confirm.
-2. Or open System Settings, Privacy and Security, find the note about Vorssaint being blocked, and click Open Anyway.
-
-Vorssaint lives in the menu bar, so once it starts, look for its icon up there rather than in the Dock.
-
-## A feature does nothing, or a permission will not stick
-
-Most features lean on a macOS permission, which the [permissions guide](PERMISSIONS.md) lays out. When something does nothing, walk through this.
-
-1. Open System Settings, Privacy and Security.
-2. Find the permission the feature needs and make sure Vorssaint is listed and switched on.
-3. If it is listed and still quiet, toggle it off and back on.
-
-Vorssaint keeps an eye on Accessibility and Screen Recording, so features tend to wake up within a second or two of a grant, with no relaunch needed.
-
-### Accessibility
-
-This one powers the scroll direction inverter, Window Layout, the switcher, Dock Preview, Finder cut and paste and quit on close. If they do nothing, open System Settings, Privacy and Security, Accessibility and confirm Vorssaint is switched on. If you rebuilt the app yourself, its signature can shift and macOS may treat it as a different app, so remove the old Vorssaint entry with the minus button and grant it again. For steady local signing while you develop, see the [contributing guide](../CONTRIBUTING.md).
-
-### Screen Recording
-
-This one feeds window titles and thumbnails in the switcher and Dock Preview. If previews fall back to app icons or Dock Preview stays unavailable, switch Vorssaint on in System Settings, Privacy and Security, Screen Recording. macOS may ask you to quit and reopen the app after you grant it.
-
-### System Audio Recording
-
-This permission is used by the mixer, the optional live equalizer and system audio capture for recordings. If a feature asks for it, open System Settings, Privacy and Security, Screen and System Audio Recording, and switch Vorssaint on. See the [permissions guide](PERMISSIONS.md#system-audio-recording) for what each feature does with the audio.
-
-### Automation
-
-Finder cut and paste and the uninstaller may ask for Automation. If a Finder move does nothing after a denial, open System Settings, Privacy and Security, Automation, and allow Vorssaint for Finder.
+A build signed with a different identity counts as a different app to macOS:
+remove the old entry with the minus button and grant it again, or reset the
+grants (below).
 
 ## Clipboard history does not copy or paste
 
-First check whether a fresh copy appears in history. History must be enabled,
-and copies from excluded apps or marked as concealed are not saved. Compare
-copy-only followed by Command-V with automatic paste. If only automatic paste
-fails, check Accessibility and the app that should receive the paste.
+Check first whether a fresh copy shows up in history. History must be on, and
+copies from excluded apps or marked as concealed are not saved. If copying
+works but automatic paste does not, check Accessibility and the app that
+should receive the paste.
 
-A failed history copy sounds the system alert and does not trigger automatic
-paste. A request also fails after five seconds, or if another history copy is
-still pending. Expired requests that have not started are skipped. A write
-already in progress can still change the clipboard; it cannot be rolled back.
-
-If another app stops answering a clipboard read, history waits for that read
-to end instead of adding more reads behind it. The deadline does not unblock
-macOS. If copying fresh text does not restore history, quit and reopen the
-source app and Vorssaint. Include the source app and macOS version in a report;
-do not include private clipboard content.
+A history copy fails, with the system alert, after five seconds or while
+another one is still pending. If another app stops answering a clipboard read,
+history waits for that read instead of piling more behind it; quit and reopen
+that app if fresh copies stop appearing.
 
 ## Homebrew and your shell startup files
 
-Homebrew inside Vorssaint uses the proxy and `HOMEBREW_*` settings your shell
-exports, so it reaches the same servers as Terminal. To find them, Vorssaint
-starts your login shell once per launch, the way Terminal does, which reads
-`~/.zprofile` and `~/.zshrc`. Because Vorssaint starts it, a startup file that
-reads a protected folder asks for access in Vorssaint's name.
-
-During that run `VORSSAINT_RESOLVING_ENVIRONMENT` is set to `1`. A startup file
-can check it to skip work that only makes sense in a terminal window, such as
-starting a multiplexer or a slow prompt:
+Homebrew in Brim uses the proxy and `HOMEBREW_*` settings your shell exports.
+To read them, Brim starts your login shell once per launch, which reads
+`~/.zprofile` and `~/.zshrc`; a startup file that reads a protected folder then
+asks for access in Brim's name. During that run `BRIM_RESOLVING_ENVIRONMENT` is
+`1`, so a startup file can skip terminal-only work:
 
 ```sh
-[[ -n $VORSSAINT_RESOLVING_ENVIRONMENT ]] && return
+[[ -n $BRIM_RESOLVING_ENVIRONMENT ]] && return
 ```
-
-## Keeping settings in your dotfiles
-
-At each normal launch, Vorssaint reads `~/.config/vorssaint/settings.plist`.
-An absolute `XDG_CONFIG_HOME` selects the parent of `vorssaint/`. The Developer
-build uses `vorssaint-dev/`. Git, Stow or Home Manager can own the file,
-including a symlink to a read-only target. Edits made during a session take
-effect the next time you launch the app.
-
-Create a starting file by exporting your current settings. Backups include
-your text snippets, so review the contents before sharing one.
-
-```sh
-/Applications/Vorssaint.app/Contents/MacOS/Vorssaint --export-settings ~/.config/vorssaint/settings.plist
-```
-
-Keep the backup version and the `settings` dictionary. You can trim the
-dictionary to just the settings you want to manage. Omitted preferences and
-snippets stay local, and the app only reads this file during normal use.
-An explicit export replaces its destination with a complete snapshot.
-Export to a separate path to review changes to a hand-maintained file.
-The Import button and `--import-settings FILE` still perform a full restore.
-Quit the app before importing from a script.
-
-Apps opened from Finder inherit the login environment. To choose a custom
-folder, set it with `launchctl setenv XDG_CONFIG_HOME "$HOME/my-config"` and
-reopen Vorssaint.
 
 ## Resetting permissions
 
-To wipe Vorssaint's granted permissions and let macOS ask again from scratch, pick one of these.
-
-- **From the app.** Settings under Advanced has a reset that clears every permission you granted, the login item and the closed lid rule, while leaving the app installed.
-- **From Terminal.** Reset all of Vorssaint's privacy permissions at once.
-
-  ```sh
-  tccutil reset All com.vorssaint.utils
-  ```
-
-  Or reset a single kind, for example.
-
-  ```sh
-  tccutil reset Accessibility com.vorssaint.utils
-  tccutil reset ScreenCapture com.vorssaint.utils
-  ```
-
-  A self-built Developer variant has its own grants under
-  `com.vorssaint.utils.dev`. Resetting is the way out when System Settings
-  shows the permission as granted but the app disagrees — that happens when a
-  grant was given to an earlier ad-hoc build whose signature no longer matches.
-
-## Clean uninstall
-
-The bundled script takes out everything Vorssaint added, the app itself, its preferences and saved state, the login item, its privacy grants, and the optional closed lid `sudoers` rule.
+Settings › Advanced resets every grant, the login item and the closed-lid rule.
+From Terminal:
 
 ```sh
-./Tools/uninstall.sh
+tccutil reset All com.roblesconsulting.brim
+tccutil reset All com.roblesconsulting.brim.dev   # the Developer app
 ```
 
-Run it from a clone of the repository, or download the single script from the repo. Would you rather do it by hand? Quit Vorssaint, drag it from Applications to the Trash, then clear its permissions.
+## Uninstalling
+
+Settings › Advanced › Uninstall Brim completely, or from a checkout:
 
 ```sh
-tccutil reset All com.vorssaint.utils
+Tools/uninstall.sh          # Brim
+Tools/uninstall.sh --dev    # Brim (Developer)
 ```
 
-## Reporting a useful bug
-
-A clear report gets fixed faster. Try to include the following.
-
-- **What you did**, what you expected, and what actually happened.
-- **Your versions**, both the Vorssaint version from Settings under About and your macOS version.
-- **Steps to reproduce**, as specific as you can make them.
-- **A screenshot or short screen recording**, when the issue is something you can see.
-
-If you have a build from source, the self test prints a quick health summary that is handy to paste in.
+## Health check
 
 ```sh
-./build/Vorssaint --selftest
+./build/BrimDeveloper --selftest
+build/brim-claude --selftest
 ```
-
-Open a report from the [new issue](https://github.com/vorssaint/vorssaint-utils/issues/new/choose) page, and see [support](../SUPPORT.md) for every way to get help.

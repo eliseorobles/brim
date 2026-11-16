@@ -3,103 +3,14 @@
 
 import Foundation
 
+/// Claude Code's get_usage check, run against stand-ins: the transport, the
+/// environment each account folder gets, and where Claude Code is found.
+/// When a check runs is ClaudeRefreshGate's (BrimClaudeAccountsAppTests).
 enum AgentClaudeServerTests {
-    enum NotchAgentSupport {
-        static let defaultLimitThreshold = 80.0
-        static func limitThreshold() -> Double? { defaultLimitThreshold }
-        /// Whether anything but the page's Limits card uses the limits.
-        static var used = true
-        static func limitsInUse(pageShown: Bool) -> Bool { used || pageShown }
-    }
-
-    class Fixture {
-        var running = true
-        var paused = false
-        var online = true
-        var providers: [AgentProvider] = [.claude]
-        var pageVisible = false
-        var claudeAccountRequest: AgentClaudeServer.Request?
-        var claudeAccountAttempted = Date.distantPast
-        var claudeAccountFailure: AgentClaudeServer.Failure?
-        var claudeAccountUnreachable = 0
-        var home = FileManager.default.temporaryDirectory
-        var enabled: Set<AgentProvider> = [.claude]
-        var claudeOrganization: String? = "account"
-        var claudeIdentity: ClaudeAccountProfile.Identity?
-        var claudePlan: AgentPlan?
-        var claudeProfileModified: Date?
-        var readerClaudeProfile = ClaudeAccountProfile()
-        var claudeAppModified: Date?
-        var claudeAppSamples: [AgentClaudeAppUsage.Sample] = []
-        var claudeAccountLimits: AgentLimits?
-        let store = AgentUsageStore()
-        var previousLimits: [AgentProvider: AgentLimits] = [:]
-        var warned: [String: (provider: AgentProvider, window: AgentLimitWindow)] = [:]
-        /// When the replay is, for each event it records.
-        var clock = Date.distantPast
-        var events: [String] = []
-
-        func report(_ event: AgentUsageEvent) {
-            let time = ISO8601DateFormatter().string(from: clock)
-            switch event {
-            case .limitWarning(_, let window): events.append("warning \(window.id) \(time)")
-            case .limitReset(_, let window): events.append("reset \(window.id) \(time)")
-            default: events.append("other \(time)")
-            }
-        }
-    }
-
     static func run(_ suite: TestSuite) {
-        alerts(suite)
-        checks(suite)
         discovery(suite)
-        let now = AgentTimestamp.parse("2026-10-15T07:00:00Z")!
-        func result(_ used: Any = 62, resets: Any = "2026-10-15T10:39:59.973389+00:00") -> [String: Any] {
-            ["rate_limits_available": true, "rate_limits": [
-                "five_hour": ["utilization": used, "resets_at": resets],
-                "seven_day": ["utilization": 9, "resets_at": "2026-10-17T22:59:59.973411+00:00"],
-                "seven_day_opus": ["utilization": 70, "resets_at": "2026-10-17T22:59:59Z"],
-                "seven_day_sonnet": NSNull()]]
-        }
-        let limits = AgentClaudeServer.limits(result(), observed: now)
-        suite.expect(limits?.source == .account && limits?.observedAt == now
-                        && limits?.windows.map(\.usedPercent) == [62, 9, 70]
-                        && limits?.windows.map(\.id) == ["claude.fh", "claude.sd", "claude.so"]
-                        && limits?.windows.last?.scope == "Opus"
-                        && limits?.windows.first?.resetsAt == AgentTimestamp.parse("2026-10-15T10:39:59.973389Z")
-                        && limits?.windows.first?.estimatedResetsAt == nil,
-                     "structured CLI usage preserves account-wide percentages, model windows and exact resets")
-        suite.expect(AgentClaudeServer.limits(["rate_limits_available": false], observed: now) == nil
-                        && AgentClaudeServer.limits(["rate_limits_available": true, "rate_limits": NSNull()], observed: now) == nil,
-                     "unsupported or unavailable accounts never produce invented limits")
-        for used: Any in [true, "62", NSNull()] {
-            suite.expect(AgentClaudeServer.limits(result(used), observed: now)?.windows.map(\.kind) == [.weekly, .weekly],
-                         "invalid percentages cannot replace a known session limit")
-        }
-        suite.expect(AgentClaudeServer.limits(result(-1), observed: now)?.windows.first?.usedPercent == 0
-                        && AgentClaudeServer.limits(result(101), observed: now)?.windows.first?.usedPercent == 100,
-                     "account percentages outside 0 to 100 are clamped as the Claude app history is")
-        let idle = AgentClaudeServer.limits(result(0, resets: NSNull()), observed: now)
-        suite.expect(idle?.windows.first.map { $0.kind == .session && $0.usedPercent == 0 && $0.resetsAt == nil } == true
-                        && AgentClaudeServer.limits(result(0, resets: "2026-10-15T06:00:00Z"), observed: now)?
-                            .windows.map(\.kind) == [.weekly, .weekly]
-                        && AgentClaudeServer.current(idle, now: now.addingTimeInterval(4 * 3_600))?.windows.first?.kind == .session
-                        && AgentClaudeServer.current(idle, now: now.addingTimeInterval(5 * 3_600))?.windows.first?.kind == .weekly,
-                     "an idle session without a renewal keeps its row for as long as the Claude app history would")
-        suite.expect(AgentClaudeServer.interval(after: nil, pageVisible: true) == 60
-                        && AgentClaudeServer.interval(after: nil, pageVisible: false) == 300
-                        && AgentClaudeServer.interval(after: .unreachable, pageVisible: true) == 300
-                        && [AgentClaudeServer.Failure.missing, .needsSignIn, .outdated].allSatisfy {
-                            AgentClaudeServer.interval(after: $0, pageVisible: true) == 1_800 },
-                     "Claude Code is asked every minute only while the AI page shows, and rarely after a failure only the person can fix")
-        suite.expect([0, 1, 2, 3, 4, 9].map { AgentClaudeServer.interval(after: .unreachable, repeated: $0, pageVisible: true) }
-                        == [300, 300, 600, 1_200, 1_800, 1_800],
-                     "Claude Code that keeps failing to answer is asked half as often each time, down to every half hour")
-        suite.expect(AgentClaudeServer.current(limits, now: AgentTimestamp.parse("2026-10-15T11:00:00Z")!)?
-            .windows.map(\.kind) == [.weekly, .weekly]
-            && AgentClaudeServer.current(limits, now: AgentTimestamp.parse("2026-10-18T00:00:00Z")!) == nil,
-                     "passed renewals expire independently without claiming zero remote usage")
-        let folder = FileManager.default.temporaryDirectory.appending(path: "vorssaint-claude-server-\(UUID())")
+        folders(suite)
+        let folder = FileManager.default.temporaryDirectory.appending(path: "brim-claude-server-\(UUID())")
         defer { try? FileManager.default.removeItem(at: folder) }
         do {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -130,7 +41,8 @@ enum AgentClaudeServerTests {
                     timeout: timeout)
             }
             let summary = try? run("ok").get()
-            suite.expect(summary?.limits.windows.map(\.usedPercent) == [100, 9],
+            suite.expect(summary?.reading.fiveHour?.utilization == 100 && summary?.reading.sevenDay?.utilization == 9
+                            && summary?.reading.fiveHour?.source == .check,
                          "a CLI conversation initializes and asks get_usage without a user prompt, hooks, tools or MCP")
             suite.expect(run("old") == .failure(.outdated) && run("unsupported") == .failure(.outdated)
                             && run("signedOut") == .failure(.needsSignIn) && run("unavailable") == .failure(.unreachable),
@@ -151,8 +63,8 @@ enum AgentClaudeServerTests {
             let reused = try? run("ok").get()
             try? FileManager.default.removeItem(at: saved)
             suite.expect(seeded == .failure(.unreachable)
-                            && (exited?.limits.observedAt).map { $0 > checked.addingTimeInterval(-1) && $0 <= Date() } == true
-                            && abs((reused?.limits.observedAt ?? .distantPast).timeIntervalSince(recent)) < 0.01,
+                            && (exited?.reading.observedAt).map { $0 > checked.addingTimeInterval(-1) && $0 <= Date() } == true
+                            && abs((reused?.reading.observedAt ?? .distantPast).timeIntervalSince(recent)) < 0.01,
                          "an answer from Claude Code's saved copy keeps its own time and an old copy is a failure")
             let began = Date()
             suite.expect(run("silent", timeout: 0.15) == .failure(.unreachable)
@@ -166,177 +78,213 @@ enum AgentClaudeServerTests {
                          "pause or disable closes an active CLI request rather than waiting for its full timeout")
             let missing = AgentClaudeServer.executable(home: folder, searchPath: nil)
             suite.expect(missing != tool, "CLI discovery never guesses an executable from a project folder")
-            // Run the production service's source selection against an older
-            // desktop sample, including after expiry and a failed refresh.
-            let desktop = AgentClaudeAppUsage.historyURL(home: folder)
-            try FileManager.default.createDirectory(at: desktop.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try JSONSerialization.data(withJSONObject: ["version": 2, "samples": [["t": now.addingTimeInterval(-60).timeIntervalSince1970 * 1000,
-                "org": "account", "u": ["fh": 34, "sd": 8]]]]).write(to: desktop)
-            let host = Host()
-            host.home = folder
-            host.claudeAccountLimits = limits
-            host.readClaudeApp(now: now)
-            suite.expect(host.store.limits[.claude] == limits,
-                         "periodic desktop reads cannot overwrite a newer account reading")
-            host.readClaudeApp(now: now.addingTimeInterval(60))
-            suite.expect(host.store.limits[.claude]?.observedAt == now,
-                         "a failed refresh leaves the last account observation time unchanged")
-            // The app saves after the last check: its latest possible renewal
-            // must not trade places with the exact one, or the warning repeats.
-            try JSONSerialization.data(withJSONObject: ["version": 2, "samples": [["t": now.addingTimeInterval(120).timeIntervalSince1970 * 1000,
-                "org": "account", "u": ["fh": 90, "sd": 8]]]]).write(to: desktop)
-            host.claudeAppModified = nil
-            host.readClaudeApp(now: now.addingTimeInterval(150))
-            let kept = host.store.limits[.claude]?.source == .account
-            host.readClaudeApp(now: now.addingTimeInterval(AgentClaudeAppUsage.freshness + 60))
-            suite.expect(kept && host.store.limits[.claude]?.source == .claudeApp,
-                         "a recent account reading keeps its place when the Claude app saves a newer one")
-            host.claudeAccountLimits = nil
-            host.readClaudeApp(now: now)
-            suite.expect(host.store.limits[.claude]?.source == .claudeApp,
-                         "desktop history remains a fallback when the CLI is unavailable")
-            host.enabled = []
-            host.readClaudeApp(now: now)
-            suite.expect(host.store.limits[.claude] == nil && host.claudeAccountLimits == nil,
-                         "turning Claude off clears its account and desktop readings")
         } catch { suite.expect(false, "Claude CLI fixture: \(error)") }
+        let failures: [AgentClaudeServer.Failure] = [.missing, .needsSignIn, .outdated, .unreachable]
+        suite.expect(AppLanguage.allCases.allSatisfy { language in
+            Set(failures.map { FeatureStrings.notchAgents(language).claudeCode($0) }).count == failures.count
+        }, "Settings says in every language why Claude Code could not check")
     }
 
-    /// The production reading and alert methods, replayed tick by tick over
-    /// what the account and the Claude app report.
-    private static func alerts(_ suite: TestSuite) {
-        let at = { (time: String) in AgentTimestamp.parse(time)! }
-        let folder = FileManager.default.temporaryDirectory.appending(path: "vorssaint-claude-alerts-\(UUID())")
-        defer { try? FileManager.default.removeItem(at: folder) }
-        let desktop = AgentClaudeAppUsage.historyURL(home: folder)
-        func host() -> Host {
-            let host = Host()
-            host.home = folder
-            host.store.reportsTransitions = true
-            return host
-        }
-        func account(_ used: Double, resets: String, at observed: String) -> AgentLimits {
-            AgentLimits(provider: .claude, windows: [AgentLimitWindow(id: "claude.fh", kind: .session, minutes: 300, scope: nil,
-                                                                       usedPercent: used, resetsAt: at(resets))],
-                        observedAt: at(observed), source: .account)
-        }
-        // One tick: what the Claude app saved and Claude Code answered so far.
-        func tick(_ host: Host, _ time: String, app samples: [(String, [String: Any])]? = nil,
-                  account reading: AgentLimits? = nil) throws {
-            if let samples {
-                try JSONSerialization.data(withJSONObject: ["version": 2, "samples": samples.map { sample, used in
-                    ["t": at(sample).timeIntervalSince1970 * 1_000, "org": "account", "u": used] }]).write(to: desktop)
-                host.claudeAppModified = nil
-            }
-            if let reading { host.claudeAccountLimits = reading }
-            host.clock = at(time)
-            host.readClaudeApp(now: at(time))
-            host.checkLimits()
-            host.reportRenewals(now: at(time))
-        }
+    /// Each account folder is checked on its own sign-in, its logs are read,
+    /// and nothing falls back to the default account.
+    private static func folders(_ suite: TestSuite) {
+        let manager = FileManager.default
+        let home = manager.temporaryDirectory.appending(path: "brim-claude-folders-\(UUID())")
+        defer { try? manager.removeItem(at: home) }
         do {
-            try FileManager.default.createDirectory(at: desktop.deletingLastPathComponent(), withIntermediateDirectories: true)
-            // The session began at 02:40 and renews at 07:40. The Claude app's
-            // readings place its start no later than 02:47, so the latest it
-            // can renew is 07:47.
-            let opened: [(String, [String: Any])] = [("2026-10-15T02:35:00Z", ["fh": 0]), ("2026-10-15T02:47:00Z", ["fh": 4])]
-            let handover = host()
-            try tick(handover, "2026-10-15T06:50:30Z", app: opened,
-                     account: account(70, resets: "2026-10-15T07:40:00Z", at: "2026-10-15T06:50:00Z"))
-            try tick(handover, "2026-10-15T07:00:30Z", account: account(92, resets: "2026-10-15T07:40:00Z", at: "2026-10-15T07:00:00Z"))
-            // Claude Code stops answering, and half an hour on the app's reading takes over.
-            try tick(handover, "2026-10-15T07:31:30Z", app: opened + [("2026-10-15T07:31:00Z", ["fh": 95])])
-            try tick(handover, "2026-10-15T07:40:30Z")
-            // Another Mac spent most of the next session before this one looked again.
-            try tick(handover, "2026-10-15T07:50:30Z", account: account(85, resets: "2026-10-15T12:50:00Z", at: "2026-10-15T07:50:00Z"))
-            suite.expect(handover.events == ["warning claude.fh 2026-10-15T07:00:30Z", "reset claude.fh 2026-10-15T07:40:30Z",
-                                             "warning claude.fh 2026-10-15T07:50:30Z"],
-                         "the Claude app taking over a warned session warns no more, renews at the account's time and warns after a real renewal")
-            // At launch the app's reading is the baseline; the account answers
-            // with the exact renewal, then the app takes over again.
-            let launched = host()
-            try tick(launched, "2026-10-15T07:01:30Z", app: opened + [("2026-10-15T07:01:00Z", ["fh": 92])])
-            try tick(launched, "2026-10-15T07:02:30Z", account: account(92, resets: "2026-10-15T07:40:00Z", at: "2026-10-15T07:02:00Z"))
-            try tick(launched, "2026-10-15T07:33:00Z", app: opened + [("2026-10-15T07:01:00Z", ["fh": 92]),
-                                                                       ("2026-10-15T07:32:00Z", ["fh": 96])])
-            suite.expect(launched.events.isEmpty,
-                         "a session past the threshold at launch stays quiet whichever source reads it")
-            // #3114's banked history: two weeks renew on Saturday, then a reset
-            // used on Wednesday empties the warned week, which keeps its
-            // Saturday renewal. The drop is the news, once.
-            let weeks: [(String, [String: Any])] = [
-                ("2026-09-19T11:56:00Z", ["sd": 100]), ("2026-09-19T12:01:00Z", ["sd": 0]),
-                ("2026-09-26T11:56:00Z", ["sd": 100]), ("2026-09-26T12:01:00Z", ["sd": 0]),
-                ("2026-10-01T08:48:00Z", ["sd": 100]), ("2026-10-01T08:53:00Z", ["sd": 0]),
-                ("2026-10-01T10:00:00Z", ["fh": 5, "sd": 4])]
-            let banked = host()
-            for count in 4...weeks.count {
-                try tick(banked, ISO8601DateFormatter().string(from: at(weeks[count - 1].0).addingTimeInterval(30)),
-                         app: Array(weeks.prefix(count)))
+            try manager.createDirectory(at: home, withIntermediateDirectories: true)
+            let work = home.appending(path: ".claude-work account").path
+            for (folder, name, used) in [("", "personal", 91), (work, "work", 12)] {
+                let config = ClaudeSessionIndex.configDirectory(forFolder: folder, home: home.path)
+                try manager.createDirectory(atPath: config, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+                try saveAccount(name, to: ClaudeUsageDecoding.configFile(forFolder: folder, home: home.path))
+                try Data(String(used).utf8).write(to: URL(fileURLWithPath: config + "/test-usage"))
+                let log = URL(fileURLWithPath: config + "/projects/project/\(name).jsonl")
+                try manager.createDirectory(at: log.deletingLastPathComponent(), withIntermediateDirectories: true)
+                let line = #"{"type":"assistant","timestamp":\#(Date().timeIntervalSince1970),"sessionId":"\#(name)","requestId":"r-\#(name)","message":{"id":"m-\#(name)","model":"claude-opus-5-5","stop_reason":"end_turn","usage":{"input_tokens":\#(used),"output_tokens":1}}}"#
+                try Data((line + "\n").utf8).write(to: log)
             }
-            for time in ["2026-10-02T12:00:00Z", "2026-10-03T11:59:00Z", "2026-10-03T12:00:30Z", "2026-10-03T13:00:00Z"] {
-                try tick(banked, time)
-            }
-            suite.expect(banked.events == ["warning claude.sd 2026-10-01T08:48:30Z", "reset claude.sd 2026-10-01T08:53:30Z"],
-                         "a reset used mid-week renews a warned week at the drop, not again at the renewal it kept")
-            // A session began on another device at 01:30 while the Mac slept.
-            // The Claude app's readings place its end no later than 10:00, and
-            // Claude Code answers only after the next session began at 06:30.
-            let slept = host()
-            let night: [(String, [String: Any])] = [("2026-10-15T01:00:00Z", ["fh": 0])]
-            try tick(slept, "2026-10-15T01:00:30Z", app: night)
-            try tick(slept, "2026-10-15T05:00:30Z", app: night + [("2026-10-15T05:00:00Z", ["fh": 85])])
-            try tick(slept, "2026-10-15T07:00:30Z", account: account(90, resets: "2026-10-15T11:30:00Z", at: "2026-10-15T07:00:00Z"))
-            for time in ["2026-10-15T10:00:30Z", "2026-10-15T11:30:30Z"] { try tick(slept, time) }
-            suite.expect(slept.events == ["warning claude.fh 2026-10-15T05:00:30Z", "warning claude.fh 2026-10-15T07:00:30Z",
-                                          "reset claude.fh 2026-10-15T11:30:30Z"],
-                         "a session that began after the last reading warns, and the one before it does not renew over it")
-        } catch { suite.expect(false, "Claude alert fixture: \(error)") }
+            try environment(suite, home: home, work: work)
+            try conversations(suite, home: home, work: work)
+            logs(suite, home: home, work: work)
+            let unsafe = home.appending(path: ".claude-open").path
+            try manager.createDirectory(atPath: unsafe, withIntermediateDirectories: true)
+            try manager.setAttributes([.posixPermissions: 0o777], ofItemAtPath: unsafe)
+            suite.expect(ClaudeLaunchEnvironment.launchProblem(forFolder: unsafe, home: home.path) != nil
+                            && ClaudeLaunchEnvironment.launchProblem(forFolder: "/", home: home.path) != nil
+                            && ClaudeLaunchEnvironment.launchProblem(forFolder: home.path, home: home.path) != nil
+                            && ClaudeLaunchEnvironment.launchProblem(forFolder: "relative/profile", home: home.path) != nil
+                            && ClaudeLaunchEnvironment.launchProblem(forFolder: home.path + "/.claude", home: home.path) != nil
+                            && ClaudeLaunchEnvironment.launchProblem(forFolder: work, home: home.path) == nil
+                            && AgentLogRoot.claudeConfigFolders(home: home, claudeFolders: [unsafe]).isEmpty,
+                         "root, home, relative, spelled-out default and writable-by-others folders are never run, nor their logs read")
+        } catch { suite.expect(false, "Claude account folders: \(error)") }
+        let tiles = NotchAgentSupport.tiles(cards: [.limits], providers: [.claude, .codex], claudeAccounts: ["default", "575e0284"])
+        suite.expect(tiles.map(\.accountID) == ["default", "575e0284", nil] && tiles.map(\.provider) == [.claude, .claude, .codex]
+                        && NotchAgentSupport.height(of: Array(tiles.prefix(2))) == NotchAgentSupport.accountCardHeight
+                        && NotchAgentSupport.tiles(cards: [.limits], providers: [.claude]) == [NotchAgentTile(card: .limits, provider: .claude)],
+                     "each Claude account has a card of its own, with room for its name, refresh and failure")
     }
 
-    /// The production schedule for Claude Code's checks, run without one.
-    private static func checks(_ suite: TestSuite) {
-        defer { NotchAgentSupport.used = true }
-        let host = Host()
-        var now = Date(timeIntervalSince1970: 2_000_000)
-        func wait() -> TimeInterval {
-            (1...180).map { TimeInterval($0) * 60 }.first { host.claudeLimitsDue(at: now + $0, pageShows: false) } ?? -1
-        }
-        // A setup that never answers, such as one whose proxy Claude Code cannot see.
-        var waits: [TimeInterval] = []
-        for _ in 0..<5 {
-            host.claudeAccountAttempted = now
-            host.noteClaudeCheck(.unreachable)
-            waits.append(wait())
-            now += waits.last ?? 0
-        }
-        suite.expect(waits == [300, 600, 1_200, 1_800, 1_800],
-                     "Claude Code that never answers is asked less and less often, down to every half hour")
-        // Another check fails as the network goes.
-        host.claudeAccountAttempted = now
-        host.noteClaudeCheck(.unreachable)
-        host.networkChanged(online: false)
-        let offline = !host.claudeLimitsDue(at: now + 86_400, pageShows: true)
-        host.networkChanged(online: true)
-        suite.expect(offline && wait() == 300, "nothing asks Claude Code while the Mac is offline, and back online the wait starts over")
-        for _ in 0..<3 { host.noteClaudeCheck(.unreachable) }
-        host.noteClaudeCheck(nil)
-        host.noteClaudeCheck(.unreachable)
-        suite.expect(wait() == 300, "an answer starts the wait over")
-        host.noteClaudeCheck(nil)
-        NotchAgentSupport.used = false
-        let unused = !host.claudeLimitsDue(at: now + 86_400, pageShows: false)
-        let shown = host.claudeLimitsDue(at: now + 86_400, pageShows: true)
-        host.pageVisible = true
-        suite.expect(unused && shown && host.claudeLimitsDue(at: now + 86_400, pageShows: false),
-                     "Claude Code is not asked while nothing shows or alerts on the limits, and the page's Limits card counts")
+    private static func saveAccount(_ name: String, to path: String) throws {
+        try JSONSerialization.data(withJSONObject: ["oauthAccount": ["accountUuid": name, "emailAddress": "\(name)@example.invalid",
+            "organizationUuid": "same-organization", "organizationType": "claude_max"]]).write(to: URL(fileURLWithPath: path))
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: path)
     }
+
+    private static func environment(_ suite: TestSuite, home: URL, work: String) throws {
+        try JSONSerialization.data(withJSONObject: ["env": ["HTTPS_PROXY": "https://work-proxy.invalid",
+            "DISABLE_TELEMETRY": "1", "CLAUDE_CONFIG_DIR": "/another-account", "ANTHROPIC_API_KEY": "unused-test-value"]])
+            .write(to: URL(fileURLWithPath: work + "/settings.json"))
+        let base = ["PATH": "/usr/bin:/bin", "HOME": home.path, "CLAUDE_CONFIG_DIR": "/wrong-account",
+                    "CLAUDE_SECURESTORAGE_CONFIG_DIR": "/wrong-store", "CLAUDE_CONFIG_PATH": "/wrong-profile",
+                    "CLAUDE_CODE_OAUTH_TOKEN": "unused-test-value",
+                    "ANTHROPIC_API_KEY": "unused-test-value", "ANTHROPIC_AUTH_TOKEN": "unused-test-value",
+                    "ANTHROPIC_BASE_URL": "https://wrong.invalid", "CLAUDE_CODE_USE_BEDROCK": "1", "CLAUDECODE": "nested"]
+        let selected = AgentClaudeServer.environment(base, home: home, folder: work)
+        let ordinary = AgentClaudeServer.environment(base, home: home)
+        suite.expect(selected["CLAUDE_CONFIG_DIR"] == work && ordinary["CLAUDE_CONFIG_DIR"] == nil
+                        && selected["HTTPS_PROXY"] == "https://work-proxy.invalid" && selected["DISABLE_TELEMETRY"] == "1"
+                        && selected["PATH"] == base["PATH"] && selected["HOME"] == home.path,
+                     "the chosen folder and its network settings replace inherited configuration without changing HOME")
+        let overrides = ["CLAUDE_SECURESTORAGE_CONFIG_DIR", "CLAUDE_CONFIG_PATH", "CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY",
+                         "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "CLAUDE_CODE_USE_BEDROCK", "CLAUDECODE"]
+        let isolated = [selected, ordinary].allSatisfy { env in overrides.allSatisfy { env[$0] == nil } }
+        suite.expect(isolated, "an inherited token, provider or secure-storage folder cannot override either account")
+    }
+
+    private static func conversations(_ suite: TestSuite, home: URL, work: String) throws {
+        let tool = home.appending(path: "test-claude")
+        try Data(folderStandIn.utf8).write(to: tool)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: tool.path)
+        let base = ["PATH": "/usr/bin:/bin", "HOME": home.path, "CLAUDE_CONFIG_DIR": "/wrong-account"]
+        let personal = try AgentClaudeServer.Request().run(tool, home: home, environment: base, timeout: 3).get()
+        let selected = try AgentClaudeServer.Request().run(tool, home: home, environment: base, folder: work, timeout: 3).get()
+        suite.expect(personal.identity?.accountUuid == "personal" && personal.reading.fiveHour?.utilization == 91
+                        && selected.identity?.accountUuid == "work" && selected.reading.fiveHour?.utilization == 12,
+                     "the real transport asks each account folder for its own allowance without a login or model request")
+        let changed = AgentClaudeServer.Request().run(tool, home: home,
+            environment: base.merging(["SWITCH_ACCOUNT": "1"], uniquingKeysWith: { _, new in new }), folder: work, timeout: 3)
+        suite.expect(changed == .failure(.unreachable),
+                     "an answer is rejected when the folder signed in to another account meanwhile, even in the same organization")
+        try saveAccount("work", to: work + "/.claude.json")
+        let marker = home.appending(path: "test-started")
+        try FileManager.default.removeItem(at: marker)
+        let answer = AgentClaudeServer.Request().run(tool, home: home, environment: base,
+                                                    folder: home.appending(path: "removed-profile").path, timeout: 3)
+        suite.expect(answer == .failure(.needsSignIn) && !FileManager.default.fileExists(atPath: marker.path),
+                     "a missing folder never starts Claude Code, and never with the default account")
+        let cancelled = AgentClaudeServer.Request()
+        cancelled.cancel()
+        suite.expect(cancelled.run(tool, home: home, environment: base, folder: work, timeout: 3) == .failure(.unreachable)
+                        && !FileManager.default.fileExists(atPath: marker.path),
+                     "a cancelled request cannot start later")
+    }
+
+    /// Every account's logs are read, once even when accounts share projects/,
+    /// and each account's own sessions folder is watched.
+    private static func logs(_ suite: TestSuite, home: URL, work: String) {
+        let both = AgentLogRoot.all(home: home, claudeFolders: ["", work])
+        let claude = both.filter { $0.provider == .claude }.map(\.url.path)
+        suite.expect(claude.contains(AgentLogRoot.canonical(URL(fileURLWithPath: work + "/projects")).path)
+                        && claude.contains(AgentLogRoot.canonical(home.appending(path: ".claude/projects")).path)
+                        && both.filter { $0.provider != .claude } == AgentLogRoot.all(home: home).filter { $0.provider != .claude },
+                     "every Claude account's logs are read, and the other agents' roots are unchanged")
+        let host = AgentUsageReadTests.Host()
+        host.home = home
+        host.start(session: 1, providers: [.claude], cancellation: AgentUsageReadTests.Cancellation(), claudeFolders: ["", work])
+        let combined = host.snapshot.usage(.today).total.tokens.input
+        host.start(session: 2, providers: [.claude], cancellation: AgentUsageReadTests.Cancellation(), claudeFolders: [""])
+        suite.expect(combined == 103 && host.snapshot.usage(.today).total.tokens.input == 91,
+                     "usage counts every account's sessions: \(combined) with both, \(host.snapshot.usage(.today).total.tokens.input) with one")
+        // Share setup links an account's projects/ to the default one's.
+        let shared = home.appending(path: ".claude-shared").path
+        try? FileManager.default.createDirectory(atPath: shared, withIntermediateDirectories: true)
+        try? FileManager.default.createSymbolicLink(atPath: shared + "/projects", withDestinationPath: home.path + "/.claude/projects")
+        let linked = AgentLogRoot.all(home: home, claudeFolders: ["", shared]).filter { $0.provider == .claude }
+        let sessions = AgentLogRoot.claudeSessionFolders(home: home, claudeFolders: ["", shared]).map(\.path)
+        suite.expect(linked.count == 2 && sessions.contains(shared + "/sessions") && sessions.contains(home.path + "/.claude/sessions"),
+                     "a shared projects/ is read once, while each account keeps its own sessions folder")
+        // Each account keeps its own projects/ now, with a copy of every
+        // conversation (ClaudeSync, T-38): a conversation is read from one
+        // copy and counted once.
+        let clone = home.appending(path: ".claude-clone").path
+        try? FileManager.default.createDirectory(atPath: clone + "/projects/project", withIntermediateDirectories: true)
+        try? FileManager.default.copyItem(atPath: home.path + "/.claude/projects/project/personal.jsonl",
+                                          toPath: clone + "/projects/project/personal.jsonl")
+        // File events name real paths.
+        let original = AgentLogRoot.canonical(URL(fileURLWithPath: home.path + "/.claude/projects/project/personal.jsonl")).path
+        let cloned = AgentLogRoot.canonical(URL(fileURLWithPath: clone + "/projects/project/personal.jsonl")).path
+        let roots = AgentLogRoot.all(home: home, claudeFolders: ["", work, clone]).filter { $0.provider == .claude }
+        let found = AgentLogReader.discover(roots, since: .distantPast).map(\.path)
+        suite.expect(found.filter { $0.hasSuffix("/project/personal.jsonl") }.count == 1,
+                     "discovery lists a conversation two account folders hold once: \(found)")
+        AgentUsageReadTests.AgentLogReader.linesFrom = []
+        host.start(session: 3, providers: [.claude], cancellation: AgentUsageReadTests.Cancellation(), claudeFolders: ["", work, clone])
+        let read = Set(AgentUsageReadTests.AgentLogReader.linesFrom.filter { $0.hasSuffix("/project/personal.jsonl") })
+        suite.expect(FileManager.default.fileExists(atPath: cloned) && host.snapshot.usage(.today).total.tokens.input == 103
+                        && read.count == 1,
+                     "a conversation cloned into two account folders is read once and counted once: \(host.snapshot.usage(.today).total.tokens.input), \(read)")
+        // The copy that grows is where the conversation goes on: reading
+        // moves to it and starts where the other stopped.
+        let chosen = read.first ?? original
+        let other = chosen == original ? cloned : original
+        let before = AgentUsageReadTests.AgentLogReader.linesFrom.count
+        if let handle = FileHandle(forWritingAtPath: other) {
+            handle.seekToEndOfFile()
+            handle.write(Data("\n".utf8))
+            try? handle.close()
+        }
+        host.filesChanged([other], rescan: false)
+        let after = AgentUsageReadTests.AgentLogReader.linesFrom[before...]
+        suite.expect(after.allSatisfy { $0 == other } && after.count <= 1 && host.cursors[other] != nil && host.cursors[chosen] == nil
+                        && host.snapshot.usage(.today).total.tokens.input == 103,
+                     "a longer copy takes over without its start being read again: \(Array(after))")
+        // The copy read goes out of view (ClaudeSync's check-out holds it in
+        // .brim-checked-out while the conversation is open on another
+        // account): the other copy is read in its place and nothing is lost;
+        // the held copy is never read.
+        let heldFolder = (other as NSString).deletingLastPathComponent + "/" + ClaudeSync.checkoutFolder
+        try? FileManager.default.createDirectory(atPath: heldFolder, withIntermediateDirectories: true)
+        let heldCopy = heldFolder + "/personal.jsonl"
+        rename(other, heldCopy)
+        AgentUsageReadTests.AgentLogReader.linesFrom = []
+        host.filesChanged([other, heldCopy], rescan: false)
+        host.publish()
+        suite.expect(host.cursors[other] == nil && host.cursors[chosen] != nil && host.cursors[heldCopy] == nil
+                        && !AgentUsageReadTests.AgentLogReader.linesFrom.contains(heldCopy)
+                        && host.snapshot.usage(.today).total.tokens.input == 103,
+                     "a copy checked out of view hands its conversation to another account's copy: \(host.snapshot.usage(.today).total.tokens.input), \(AgentUsageReadTests.AgentLogReader.linesFrom)")
+        rename(heldCopy, other)
+        AgentUsageReadTests.AgentLogReader.linesFrom = []
+    }
+
+    private static let folderStandIn = #"""
+    #!/bin/sh
+    [ -z "$CLAUDECODE" ] && [ "$DISABLE_AUTOUPDATER" = 1 ] || exit 2
+    [ -z "$CLAUDE_SECURESTORAGE_CONFIG_DIR" ] || exit 2
+    [ "$1" = --print ] && [ "$2" = --input-format ] && [ "$3" = stream-json ] || exit 2
+    profile="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+    printf started > "$HOME/test-started"
+    while IFS= read -r line; do
+      case "$line" in
+        *'"subtype":"initialize"'*)
+          printf '%s\n' '{"type":"control_response","response":{"subtype":"success","request_id":"initialize","response":{}}}' ;;
+        *'"subtype":"get_usage"'*)
+          case "$line" in *'"skip_behaviors":true'*) ;; *) exit 3 ;; esac
+          [ "$SWITCH_ACCOUNT" = 1 ] && printf '%s' '{"oauthAccount":{"accountUuid":"another","emailAddress":"another@example.invalid","organizationUuid":"same-organization"}}' > "$profile/.claude.json"
+          used=$(cat "$profile/test-usage")
+          printf '{"type":"control_response","response":{"subtype":"success","request_id":"usage","response":{"rate_limits_available":true,"rate_limits":{"five_hour":{"utilization":%s,"resets_at":"2099-10-28T15:00:00Z"}}}}}\n' "$used" ;;
+        *) exit 4 ;;
+      esac
+    done
+    """#
 
     /// Where people install Claude Code, each in a home of its own, with
     /// stand-ins that only exit.
     private static func discovery(_ suite: TestSuite) {
         func home() throws -> URL {
-            let home = FileManager.default.temporaryDirectory.appending(path: "vorssaint-claude-install-\(UUID())")
+            let home = FileManager.default.temporaryDirectory.appending(path: "brim-claude-install-\(UUID())")
             try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
             return home
         }
@@ -396,7 +344,7 @@ enum AgentClaudeServerTests {
                     environment: ["PATH": path, "HOME": local.path, "STAND_IN": "ok"], timeout: 5)
             }
             suite.expect(tool?.path.hasSuffix("/.claude/local/claude") == true
-                            && (try? answer?.get())?.limits.windows.isEmpty == false && path.hasPrefix("/usr/bin:/bin:"),
+                            && (try? answer?.get())?.reading.isEmpty == false && path.hasPrefix("/usr/bin:/bin:"),
                          "a Claude Code in ~/.claude/local runs on the Node a version manager keeps, after the system's tools")
         } catch { suite.expect(false, "Claude Code install fixture: \(error)") }
         let failures: [AgentClaudeServer.Failure] = [.missing, .needsSignIn, .outdated, .unreachable]

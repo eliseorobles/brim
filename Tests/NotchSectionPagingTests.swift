@@ -98,9 +98,8 @@ enum NotchSectionPagingTests {
                                      safeAreaTop: 32, cameraWidth: 180)
         var expandedGeometry: NotchGeometry { geometry }
         var sectionScroll = NotchSectionScroll()
-        var movedRows = 0, gestureCalls = 0
+        var movedRows = 0
         func scrollSections(by rows: Int) { movedRows += rows }
-        func handleGesture(_ event: NSEvent) -> Bool { gestureCalls += 1; return false }
     }
 
     private static func routing(_ suite: TestSuite) {
@@ -112,23 +111,21 @@ enum NotchSectionPagingTests {
             func event(fromTop top: CGFloat) -> NSEvent {
                 NSEvent(locationInWindow: CGPoint(x: 100, y: service.panel!.frame.height - top))
             }
-            suite.expect(!service.handleScroll(event(fromTop: headerBottom))
-                         && service.gestureCalls == 1 && service.movedRows == 0,
-                         "the actual header keeps its gesture for width \(width) and camera height \(cameraHeight)")
+            suite.expect(!service.handleSectionScroll(event(fromTop: headerBottom)) && service.movedRows == 0,
+                         "the actual header steps no rows for width \(width) and camera height \(cameraHeight)")
             for offset in [1.0, NotchLayout.spacing + 1, NotchLayout.spacing + NotchLayout.sectionTileHeight / 2] {
                 let before = service.movedRows
-                let gestures = service.gestureCalls
-                suite.expect(service.handleScroll(event(fromTop: headerBottom + offset))
-                             && service.movedRows == before + 1 && service.gestureCalls == gestures,
+                suite.expect(service.handleSectionScroll(event(fromTop: headerBottom + offset))
+                             && service.movedRows == before + 1,
                              "every part of the body steps rows below the rendered header, including the top of the first tile")
             }
             var modified = event(fromTop: headerBottom + 20)
             modified.modifierFlags = .command
             let before = service.movedRows
-            suite.expect(!service.handleScroll(modified) && service.movedRows == before,
+            suite.expect(!service.handleSectionScroll(modified) && service.movedRows == before,
                          "modified scrolling is not captured by the gallery")
             service.windowHost?.acceptsPoint = false
-            suite.expect(!service.handleScroll(event(fromTop: headerBottom + 20)) && service.movedRows == before,
+            suite.expect(!service.handleSectionScroll(event(fromTop: headerBottom + 20)) && service.movedRows == before,
                          "transparent corners and floating controls are not captured by the gallery")
         }
     }

@@ -17,7 +17,6 @@ enum NotchCapsuleTests {
         placementContracts(suite)
         outlineContracts(suite)
         stripContracts(suite)
-        calendarLeadContracts(suite)
         measureContracts(suite)
         openContracts(suite)
         targetContracts(suite)
@@ -41,56 +40,28 @@ enum NotchCapsuleTests {
 
     /// Every closed strip a capsule can show, with long and short content.
     private static func strips(_ geometry: NotchGeometry) -> [(String, CGSize)] {
-        let language = AppLanguage.enUS
         let long = String(repeating: "A long title that keeps going ", count: 6)
         var result: [(String, CGSize)] = [
             ("rest", geometry.restingSize(showsContent: false)),
-            ("music", Layout.musicSurface(title: "Song", geometry: geometry)),
-            ("long music", Layout.musicSurface(title: long, geometry: geometry)),
-            ("timer", Layout.timerSurface(reading: "25min", companion: nil, workingAgents: 0, downloadPercent: false,
-                                          geometry: geometry, language: language)),
-            ("timer and download", Layout.timerSurface(reading: "1h02", companion: .downloads, workingAgents: 0,
-                                                       downloadPercent: true, geometry: geometry, language: language)),
-            ("timer and agents", Layout.timerSurface(reading: "12:04", companion: .agents, workingAgents: 2,
-                                                     downloadPercent: false, geometry: geometry, language: language)),
-            ("timer and music", Layout.timerSurface(reading: "9m", companion: .music, workingAgents: 0,
-                                                    downloadPercent: false, geometry: geometry, language: language)),
-            ("timer and event", Layout.timerSurface(reading: "1h02", companion: .calendar, workingAgents: 0,
-                                                    downloadPercent: false, geometry: geometry, language: language)),
-            ("event and download", Layout.calendarPairSurface(companion: .downloads, workingAgents: 0, downloadPercent: true,
-                                                              geometry: geometry, language: language)),
-            ("event and agents", Layout.calendarPairSurface(companion: .agents, workingAgents: 2, downloadPercent: false,
-                                                            geometry: geometry, language: language)),
-            ("event and music", Layout.calendarPairSurface(companion: .music, workingAgents: 0, downloadPercent: false,
-                                                           geometry: geometry, language: language)),
             ("agents", Layout.agentSurface(reading: "1:02:33", working: 2, geometry: geometry)),
             ("keep awake", Layout.keepAwakeSurface(reading: "26h05", geometry: geometry)),
             ("keep awake without an end", Layout.keepAwakeSurface(reading: nil, geometry: geometry)),
-            ("download", Layout.downloadSurface(name: "Installer.dmg", hasProgress: true, geometry: geometry, language: language)),
-            ("long download", Layout.downloadSurface(name: long, hasProgress: false, geometry: geometry, language: language)),
-            ("calendar", Layout.calendarSurface(title: "Design review", time: "· 19:15", geometry: geometry)),
-            ("long calendar", Layout.calendarSurface(title: long, time: "→ 19:15", geometry: geometry)),
-            ("capture", Layout.captureSurface(geometry: geometry)),
         ]
-        for (title, detail, level) in [("Volume", "60%", true), ("Charging", "80%", false),
-                                       ("Connected", "Wireless Headphones Pro", false), (long, long, false)] {
+        for (title, detail) in [("ABC", "ABC"), ("Charging", "80%"), ("Copied", "Wireless Headphones Pro"), (long, long)] {
             result.append(("notice \(title.prefix(12))",
-                           Layout.surface(content: Layout.noticeContent(title: title, detail: detail, level: level),
+                           Layout.surface(content: Layout.noticeContent(title: title, detail: detail),
                                           maximum: Layout.Maximum.notice, geometry: geometry)))
         }
-        result.append(("banner", Layout.surface(content: Layout.notificationContent(title: "Alex", message: long, geometry: geometry),
-                                                maximum: Layout.Maximum.notification, geometry: geometry)))
         return result
     }
 
     private static func preferenceContracts(_ suite: TestSuite) {
-        let domain = "com.vorssaint.tests.notch-capsule"
+        let domain = "brim.tests.notch-capsule"
         let defaults = UserDefaults(suiteName: domain)!
         defaults.removePersistentDomain(forName: domain)
         defer { defaults.removePersistentDomain(forName: domain) }
-        suite.expect(Defaults.registeredDefaults[DefaultsKey.notchSilhouette] as? String == NotchSilhouette.capsule.rawValue
-                     && SettingsBackupSupport.exportKeys().contains(DefaultsKey.notchSilhouette),
-                     "the capsule is the registered shape without a notch and travels with a backup")
+        suite.expect(Defaults.registeredDefaults[DefaultsKey.notchSilhouette] as? String == NotchSilhouette.capsule.rawValue,
+                     "the capsule is the registered shape without a notch")
         suite.expect(NotchSilhouette.current(in: defaults) == .capsule, "a display without a notch floats a capsule by default")
         defaults.set(NotchSilhouette.notch.rawValue, forKey: DefaultsKey.notchSilhouette)
         suite.expect(NotchSilhouette.current(in: defaults) == .notch, "the simulated notch stays available")
@@ -194,7 +165,7 @@ enum NotchCapsuleTests {
                 for (name, size) in strips(geometry) {
                     suite.expect(size.width >= resting && size.width == size.width.rounded()
                                  && (size.width <= available || size.width == resting)
-                                 && size.width <= Layout.Maximum.notification + side * 2 + 1,
+                                 && size.width <= Layout.Maximum.notice + side * 2 + 1,
                                  "a closed capsule stays between the bare capsule, its kind's limit and the bar's room: \(name), room \(String(describing: room))")
                 }
                 let room = geometry.compactSideRoom ?? 0
@@ -206,52 +177,23 @@ enum NotchCapsuleTests {
         let geometry = capsule(bar: 24)
         let side = Layout.side(geometry)
         func visible(_ size: CGSize) -> CGFloat { size.width - side * 2 }
-        // Content is hugged with the capsule's end padding, and a level notice
-        // keeps one width for every value.
-        let volume = Layout.surface(content: Layout.noticeContent(title: "Volume", detail: "60%", level: true),
-                                    maximum: Layout.Maximum.notice, geometry: geometry)
-        suite.expect(abs(visible(volume) - (Layout.noticeContent(title: "Volume", detail: "60%", level: true)
-                                            + Layout.endPadding * 2)) < 1,
-                     "a level notice is as wide as its mark, meter and reading, with no band of empty black")
-        for value in 0...100 {
-            let other = Layout.surface(content: Layout.noticeContent(title: "Volume", detail: "\(value)%", level: true),
-                                       maximum: Layout.Maximum.notice, geometry: geometry)
-            suite.expect(other == volume, "a level notice keeps one width while the value changes: \(value)%")
-        }
+        // Content is hugged with the capsule's end padding.
+        let charging = Layout.surface(content: Layout.noticeContent(title: "Charging", detail: "80%"),
+                                      maximum: Layout.Maximum.notice, geometry: geometry)
+        suite.expect(abs(visible(charging) - (Layout.noticeContent(title: "Charging", detail: "80%")
+                                              + Layout.endPadding * 2)) < 1,
+                     "a notice is as wide as its mark, title and detail, with no band of empty black")
         for (first, second) in [("25min", "24min"), ("9m", "8m"), ("1h02", "1h59"), ("12:04", "59:59")] {
-            let a = Layout.timerSurface(reading: first, companion: nil, workingAgents: 0, downloadPercent: false,
-                                        geometry: geometry, language: .enUS)
-            let b = Layout.timerSurface(reading: second, companion: nil, workingAgents: 0, downloadPercent: false,
-                                        geometry: geometry, language: .enUS)
-            suite.expect(a == b && Layout.agentSurface(reading: first, working: 1, geometry: geometry)
+            suite.expect(Layout.keepAwakeSurface(reading: first, geometry: geometry)
+                            == Layout.keepAwakeSurface(reading: second, geometry: geometry)
+                         && Layout.agentSurface(reading: first, working: 1, geometry: geometry)
                             == Layout.agentSurface(reading: second, working: 1, geometry: geometry),
                          "a reading keeps its capsule while its digits change: \(first) and \(second)")
         }
-        let music = Layout.musicSurface(title: "Song", geometry: geometry)
-        let unnamed = Layout.musicSurface(title: nil, geometry: geometry)
-        suite.expect(unnamed.width == geometry.restingSize(showsContent: false).width
-                     && Layout.musicSurface(title: String(repeating: "Song ", count: 40), geometry: geometry).width > unnamed.width,
-                     "a song past its first moments keeps only its cover and bars, in the bare capsule")
-        let longMusic = Layout.musicSurface(title: String(repeating: "Song ", count: 40), geometry: geometry)
-        suite.expect(music.width < longMusic.width && longMusic.width == (Layout.Maximum.music + side * 2).rounded(.down),
-                     "a song's capsule fits its title up to the widest music strip, which then truncates the title")
-        let cover = Layout.artworkSide(geometry)
-        suite.expect(abs(Layout.artworkInset(geometry) + cover / 2 - geometry.stripBodyHeight / 2) < 0.001 && cover >= 12,
-                     "the cover is a circle concentric with the capsule's round end, an even gap inside it")
-        let eventAndMusic = Layout.calendarPairSurface(companion: .music, workingAgents: 0, downloadPercent: false,
-                                                       geometry: geometry, language: .enUS)
-        let eventAndMusicContent = Layout.artworkInset(geometry) + cover + Layout.groupSpacing + Layout.calendarClockWidth()
-            + Layout.endPadding
-        suite.expect(abs(visible(eventAndMusic) - max(visible(geometry.restingSize(showsContent: false)),
-                                                      eventAndMusicContent)) < 1,
-                     "an event paired with music hugs the cover and the event's countdown, its title left out")
-        for font in [Layout.titleFont, Layout.detailFont, Layout.levelFont, Layout.readingFont, Layout.smallFont] {
+        for font in [Layout.titleFont, Layout.detailFont, Layout.readingFont, Layout.smallFont] {
             suite.expect((geometry.stripBodyHeight - font.capHeight) / 2 >= 4,
                          "the capsule's text keeps clear of its top and bottom: \(font.pointSize) pt")
         }
-        suite.expect((geometry.stripBodyHeight - Layout.notificationIconSide(geometry)) / 2 >= 2
-                     && (geometry.stripBodyHeight - Layout.barsHeight(geometry)) / 2 >= 4,
-                     "a banner's icon and the music bars keep clear of the capsule's top and bottom")
         // Crowded menus narrow every capsule to what they leave, and the bare
         // capsule stays whole.
         let crowded = capsule(bar: 24, room: 10)
@@ -261,59 +203,13 @@ enum NotchCapsuleTests {
         }
     }
 
-    private static func calendarLeadContracts(_ suite: TestSuite) {
-        let geometry = capsule(bar: 24)
-        let now = Date(timeIntervalSince1970: 1_800_000_000)
-        let short = Layout.calendarSurface(title: "Call", time: "· 12:30", geometry: geometry)
-        let shortPair = Layout.calendarPairSurface(companion: .agents, workingAgents: 3, downloadPercent: false,
-                                                   geometry: geometry, language: .enUS)
-        let shortTimer = Layout.timerSurface(reading: "25:00", companion: .calendar, workingAgents: 0,
-                                             downloadPercent: false, geometry: geometry, language: .enUS)
-        for minutes in [15, 60, 99, 120, 240] {
-            let lead = TimeInterval(minutes * 60)
-            let shape = NotchCalendarSupport.countdownShape(leadTime: lead)
-            let text = NotchCalendarSupport.countdownText(until: now.addingTimeInterval(lead), now: now)
-            for font in [Layout.readingFont, NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .medium)] {
-                let drawn = NSHostingView(rootView: Text(text).font(Font(font as CTFont)).lineLimit(1).fixedSize())
-                    .fittingSize.width
-                let reserved = (shape as NSString).size(withAttributes: [.font: font]).width.rounded(.up)
-                suite.expect(drawn <= reserved + 0.5,
-                             "notch and capsule reserve every digit of a \(minutes)-minute countdown")
-            }
-            let single = Layout.calendarSurface(title: "Call", time: "· 12:30", geometry: geometry,
-                                                 calendarLeadTime: lead)
-            let pair = Layout.calendarPairSurface(companion: .agents, workingAgents: 3, downloadPercent: false,
-                                                   geometry: geometry, language: .enUS, calendarLeadTime: lead)
-            let timer = Layout.timerSurface(reading: "25:00", companion: .calendar, workingAgents: 0,
-                                             downloadPercent: false, geometry: geometry, language: .enUS,
-                                             calendarLeadTime: lead)
-            if minutes < 100 {
-                suite.expect(single == short && pair == shortPair && timer == shortTimer,
-                             "shorter leads preserve the default capsule widths")
-            }
-            func drawnWidth(_ value: String, font: NSFont) -> CGFloat {
-                NSHostingView(rootView: Text(value).font(Font(font as CTFont)).lineLimit(1).fixedSize()).fittingSize.width
-            }
-            let clock = drawnWidth(text, font: Layout.readingFont)
-            let calendarMark = Layout.calendarDotSide + Layout.markSpacing + clock
-            let ends = 2 * (Layout.side(geometry) + Layout.endPadding)
-            let singleContent = Layout.calendarDotSide + Layout.spacing + drawnWidth("Call", font: Layout.titleFont)
-                + Layout.groupSpacing + clock + Layout.markSpacing + drawnWidth("· 12:30", font: Layout.smallFont)
-            let pairContent = Layout.agentMarksWidth(working: 3) + Layout.groupSpacing + calendarMark
-            let timerContent = calendarMark + Layout.groupSpacing + drawnWidth("25:00", font: Layout.readingFont)
-            suite.expect(single.width + 0.5 >= ends + singleContent && pair.width + 0.5 >= ends + pairContent
-                         && timer.width + 0.5 >= ends + timerContent,
-                         "single and paired capsules fit the rendered \(minutes)-minute clock and its neighbors")
-        }
-    }
-
     /// AppKit measures what SwiftUI draws; the air keeps any difference from
     /// cutting a word, in every script a strip can carry.
     private static func measureContracts(_ suite: TestSuite) {
         let samples = ["Bohemian Rhapsody", "Wireless Headphones Pro", "Carregando", "Подключено", "会议提醒 项目评审",
                        "🚀🎉 launch", "مرحبا بالعالم", "שלום עולם", "25min", "1:02:33", "100%", "Xcode_27.xip"]
         for sample in samples {
-            for font in [Layout.titleFont, Layout.detailFont, Layout.levelFont, Layout.readingFont, Layout.smallFont] {
+            for font in [Layout.titleFont, Layout.detailFont, Layout.readingFont, Layout.smallFont] {
                 let drawn = NSHostingView(rootView: Text(sample).font(Font(font as CTFont)).lineLimit(1).fixedSize())
                     .fittingSize.width
                 suite.expect(drawn <= Layout.width(sample, font: font) + 0.5,
@@ -347,8 +243,7 @@ enum NotchCapsuleTests {
                             == CGRect(origin: .zero, size: strip),
                          "a click anywhere on a closed capsule opens the island")
             let sizes = NotchModule.allCases.map { geometry.expandedSize(module: $0) }
-                + [geometry.sectionPickerSize(count: NotchModule.allCases.count), geometry.peek,
-                   geometry.notificationPreviewSize(contentHeight: 120)]
+                + [geometry.sectionPickerSize(count: NotchModule.allCases.count), geometry.peek]
             for size in sizes {
                 let capsule = body(size, geometry)
                 let corner = min(NotchLayout.capsuleRadius(height: capsule.height), capsule.width / 2)
@@ -371,11 +266,7 @@ enum NotchCapsuleTests {
             // The peek's row is as tall as its navigation, 36 points.
             suite.expect(geometry.safeContentTop - gap == geometry.peek.height - geometry.safeContentTop - 36 - gap
                          && geometry.safeContentTop == NotchLayout.bottomInset,
-                         "a peek, a drop or a notification card keeps even margins inside the capsule")
-            let controls = NotchCaptureControlsLayout(geometry: geometry, titleWidth: 120, capturesAudio: false)
-            suite.expect(controls.headerTop == geometry.headerTopInset && controls.headerHeight == geometry.headerRowHeight
-                         && controls.cameraGap == 0,
-                         "capture controls take the capsule's header row, below its top edge")
+                         "a peek keeps even margins inside the capsule")
         }
     }
 
@@ -383,7 +274,7 @@ enum NotchCapsuleTests {
     /// reach what lies beneath, and only the capsule is painted.
     private static func targetContracts(_ suite: TestSuite) {
         let geometry = capsule(bar: 24)
-        let strip = Layout.musicSurface(title: "Song", geometry: geometry)
+        let strip = Layout.keepAwakeSurface(reading: "1h02", geometry: geometry)
         let stripPath = NotchLayout.capsulePath(in: CGRect(origin: .zero, size: strip), gap: 2)
         suite.expect(stripPath.contains(CGPoint(x: strip.width / 2, y: strip.height / 2))
                      && !stripPath.contains(CGPoint(x: strip.width / 2, y: 1))
@@ -402,15 +293,14 @@ enum NotchCapsuleTests {
     /// A fitted capsule grows from its top edge, keeps its margins, lowers
     /// open and closed alike, and leaves every other island untouched.
     private static func fitContracts(_ suite: TestSuite) {
-        let domain = "com.vorssaint.tests.notch-capsule-fit"
+        let domain = "brim.tests.notch-capsule-fit"
         let defaults = UserDefaults(suiteName: domain)!
         defaults.removePersistentDomain(forName: domain)
         defer { defaults.removePersistentDomain(forName: domain) }
         let keys = [DefaultsKey.notchCapsuleFitWidth, DefaultsKey.notchCapsuleFitHeight, DefaultsKey.notchCapsuleFitDrop]
         suite.expect(keys.allSatisfy { Defaults.registeredDefaults[$0] as? Double == 0 }
-                     && keys.allSatisfy(SettingsBackupSupport.exportKeys().contains)
                      && NotchCapsuleFit.current(in: defaults) == .zero,
-                     "an untouched capsule has no fit, and a fit travels with a backup")
+                     "an untouched capsule has no fit")
         defaults.set(7.0, forKey: DefaultsKey.notchCapsuleFitWidth)
         defaults.set(2.6, forKey: DefaultsKey.notchCapsuleFitHeight)
         defaults.set(12.4, forKey: DefaultsKey.notchCapsuleFitDrop)
@@ -519,8 +409,9 @@ enum NotchCapsuleTests {
                      "a circle symbol's ink sits below its frame's middle, and is lifted by that much")
         suite.expect(abs(Layout.symbolDrop("chevron.down")) < 0.2 && Layout.symbolDrop("no.such.symbol") == 0,
                      "a symbol with centred ink, or none at all, stays where its frame puts it")
-        let symbols = circles + ["stopwatch", "speaker.wave.2.fill", "sun.max.fill", "moon.fill", "bell.fill", "keyboard",
-                                 "light.max", "mic.fill", "headphones", "airpods", "bolt.fill", "chevron.down"]
+        let symbols = circles + ["keyboard", "doc.on.clipboard", "cup.and.saucer", "sparkles", "battery.25percent",
+                                 "battery.100percent.bolt", "exclamationmark.triangle.fill", "arrow.clockwise",
+                                 "dollarsign.circle.fill", "chevron.down"]
         suite.expect(symbols.allSatisfy { abs(Layout.symbolDrop($0)) < 1.5 }
                      && symbols.allSatisfy { Layout.symbolDrop($0) == Layout.symbolDrop($0) }
                      && abs(Layout.symbolDrop("battery.100percent", weight: .regular)) < 1.5,

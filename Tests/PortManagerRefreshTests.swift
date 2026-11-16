@@ -12,6 +12,8 @@ enum PortManagerRefreshTests {
         static var enumerated: [pid_t] = []
         static var enumerationFails = false
         static func startTime(for pid: pid_t) -> UInt64? { current[pid] }
+        /// The process table's pid listing; empty when enumeration fails.
+        static func pids() -> [pid_t] { enumerationFails ? [] : enumerated }
     }
     enum Listing {
         static var status: Int32 = 0
@@ -36,19 +38,12 @@ enum PortManagerRefreshTests {
     class Fixture {
         typealias DispatchQueue = Queue
         typealias KillProcessService = Processes
+        typealias ProcessTable = Processes
         typealias Shell = Listing
         var entries: [PortManagerEntry] = []
         var isRefreshing = false
         var hasLoadedOnce = false
         var refreshFailed = false
-        static func proc_listallpids(_ buffer: UnsafeMutableRawPointer?, _ byteCount: Int32) -> Int32 {
-            guard !Processes.enumerationFails else { return -1 }
-            guard let buffer else { return Int32(Processes.enumerated.count) }
-            let count = min(Processes.enumerated.count, Int(byteCount) / MemoryLayout<pid_t>.size)
-            let pids = buffer.assumingMemoryBound(to: pid_t.self)
-            for index in 0..<count { pids[index] = Processes.enumerated[index] }
-            return Int32(count)
-        }
     }
     private static let rows = """
         p123

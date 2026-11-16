@@ -11,7 +11,10 @@ typealias AgentUsageReadProductionArchive = AgentUsageArchive
 enum AgentUsageReadTests {
     enum AgentLogReader {
         static var beforeLine: (() -> Void)?
+        /// Every log a line was read from, in order.
+        static var linesFrom: [String] = []
         static func isLog(_ path: String) -> Bool { AgentUsageProductionLogReader.isLog(path) }
+        static func size(_ path: String) -> UInt64? { AgentUsageProductionLogReader.size(path) }
         static func discover(_ roots: [AgentLogRoot], since horizon: Date) -> [(path: String, provider: AgentProvider)] {
             AgentUsageProductionLogReader.discover(roots, since: horizon)
         }
@@ -31,6 +34,7 @@ enum AgentUsageReadTests {
             AgentUsageProductionLogReader.readAppended(cursor, since: horizon, shouldContinue: shouldContinue,
                                                         including: including) {
                 beforeLine?()
+                linesFrom.append(cursor.path)
                 line($0)
             }
         }
@@ -67,9 +71,11 @@ enum AgentUsageReadTests {
         var watchedRoots: [AgentLogRoot] = []
         var readerCancellation: Cancellation? = Cancellation()
         var cursors: [String: AgentLogCursor] = [:]
+        var claudeCopies: [String: String] = [:]
+        var claudeRoots: [AgentLogRoot] = []
         var store = AgentUsageStore()
         var enabled: Set<AgentProvider> = []
-        var readerClaudeProfile = ClaudeAccountProfile()
+        var readerClaudeFolders: [String] = [""]
         var previousLimits: [AgentProvider: AgentLimits] = [:]
         var budgetDay: Date?
         var snapshot = AgentUsageSnapshot()
@@ -81,8 +87,6 @@ enum AgentUsageReadTests {
         func startTimer() {}
         func loadPrices() {}
         func closeEndedTurns(_ roots: [AgentLogRoot], atLaunch: Bool) {}
-        func readClaudePlan() {}
-        func readClaudeApp(now: Date) {}
         func watch(_ roots: [AgentLogRoot]) { watchedRoots = roots }
         func startPolling() {}
         func syncPolling() {}
@@ -97,7 +101,7 @@ enum AgentUsageReadTests {
     }
 
     static func run(_ suite: TestSuite) {
-        let folder = FileManager.default.temporaryDirectory.appending(path: "vorss-streaming-\(UUID().uuidString)")
+        let folder = FileManager.default.temporaryDirectory.appending(path: "brim-streaming-\(UUID().uuidString)")
         defer {
             AgentLogReader.beforeLine = nil
             try? FileManager.default.removeItem(at: folder)

@@ -22,43 +22,13 @@ enum PreferencesFeatureTests {
                "app is an allowed memory metric")
         suite.expect(Defaults.sanitizedMonitorMemoryMetric("bogus") == "used",
                "unknown memory metric values fall back to used")
-        suite.expect(SettingsBackupSupport.exportKeys().contains(DefaultsKey.monitorMemoryMetric),
-               "monitor memory metric is included in settings backups")
-        suite.expect(!SettingsBackupSupport.exportKeys().contains(DefaultsKey.recorderSaveFolder),
-               "a chosen recording save folder is authority on one Mac and must not travel in a settings backup")
-        suite.expect(!SettingsBackupSupport.exportKeys().contains(DefaultsKey.screenshotSaveFolder),
-               "a chosen screenshot save folder is authority on one Mac and must not travel in a settings backup")
-        suite.expect(!SettingsBackupSupport.exportKeys().contains(DefaultsKey.musicBlockReplacementPath),
-               "a chosen replacement app bundle path is authority on one Mac and must not travel in a settings backup")
-        suite.expect(SettingsBackupSupport.exportKeys().contains(DefaultsKey.screenshotSaveSubfolder),
-               "a screenshot subfolder name is a pattern rather than a path, so it still follows settings backups")
-        suite.expect(!SettingsBackupSupport.exportKeys().contains(DefaultsKey.commandBarFileScopes)
-            && !SettingsBackupSupport.exportKeys().contains(DefaultsKey.whatsAppOrganizerDestinationPath)
-            && !SettingsBackupSupport.exportKeys().contains(DefaultsKey.notchDownloadsFolderBookmark)
-            && !SettingsBackupSupport.exportKeys().contains(DefaultsKey.wallpaperOwnBookmarks)
-            && !SettingsBackupSupport.exportKeys().contains(DefaultsKey.mediaImageWatermarkLogoPath),
-               "every chosen folder already excluded from backups stays excluded")
-        suite.expect(!SettingsBackupSupport.keysToClear(whenImporting: [:]).contains(DefaultsKey.recorderSaveFolder)
-            && !SettingsBackupSupport.keysToClear(whenImporting: [:]).contains(DefaultsKey.screenshotSaveFolder)
-            && !SettingsBackupSupport.keysToClear(whenImporting: [:]).contains(DefaultsKey.musicBlockReplacementPath),
-               "importing a backup never clears the Mac's own chosen save folders, because the clear set follows the export set")
         suite.expect(registeredDefaults[DefaultsKey.appearance] as? String == AppAppearance.system.rawValue,
                "the app follows the system appearance until the user picks a side")
         suite.expect(registeredDefaults[DefaultsKey.liquidGlassEnabled] as? Bool == false,
                "liquid glass in other windows is opt-in")
         suite.expect(registeredDefaults[DefaultsKey.notchLiquidGlassEnabled] as? Bool == false,
                "liquid glass in Dynamic Island is opt-in")
-        suite.expect(SettingsBackupSupport.exportKeys().contains(DefaultsKey.liquidGlassEnabled),
-               "liquid glass in other windows follows settings backups")
-        suite.expect(SettingsBackupSupport.exportKeys().contains(DefaultsKey.notchLiquidGlassEnabled),
-               "liquid glass in Dynamic Island follows settings backups")
-        suite.expect(SettingsBackupSupport.keysToClear(whenImporting: [
-            DefaultsKey.notchEnabled: true
-        ]).contains(DefaultsKey.notchLiquidGlassEnabled)
-            && !SettingsBackupSupport.keysToClear(whenImporting: [:])
-                .contains(DefaultsKey.notchLiquidGlassEnabled),
-               "old backups with island settings can migrate their glass choice, while older backups keep the local choice")
-        let glassDomain = "vorss.tests.glass-migration.\(UUID().uuidString)"
+        let glassDomain = "brim.tests.glass-migration.\(UUID().uuidString)"
         let glassDefaults = UserDefaults(suiteName: glassDomain)!
         defer { glassDefaults.removePersistentDomain(forName: glassDomain) }
         Defaults.migrateLiquidGlassIsland(in: glassDefaults, domainName: glassDomain)
@@ -82,33 +52,13 @@ enum PreferencesFeatureTests {
         Defaults.migrateLiquidGlassIsland(in: glassDefaults, domainName: glassDomain)
         suite.expect(!glassDefaults.bool(forKey: DefaultsKey.notchLiquidGlassEnabled),
                "an explicit island choice survives later launches")
-        let companionDomain = "vorss.tests.companion-beta.\(UUID().uuidString)"
+        let companionDomain = "brim.tests.companion-beta.\(UUID().uuidString)"
         let companionDefaults = UserDefaults(suiteName: companionDomain)!
         defer { companionDefaults.removePersistentDomain(forName: companionDomain) }
         // Setup writes every feature's availability, the companion's as off.
-        companionDefaults.set(true, forKey: AppFeature.commandBar.availabilityKey)
-        companionDefaults.set(false, forKey: AppFeature.notchMascot.availabilityKey)
         companionDefaults.set(false, forKey: AppFeature.notch.availabilityKey)
-        Defaults.installCompanionForBetaCommandBar(in: companionDefaults, isBeta: true)
-        let waitsForSetup = !companionDefaults.bool(forKey: AppFeature.notchMascot.availabilityKey)
         companionDefaults.set(true, forKey: DefaultsKey.hasOnboarded)
-        Defaults.installCompanionForBetaCommandBar(in: companionDefaults, isBeta: false)
-        let stableUntouched = !companionDefaults.bool(forKey: AppFeature.notchMascot.availabilityKey)
-        Defaults.installCompanionForBetaCommandBar(in: companionDefaults, isBeta: true)
-        let noIsland = !companionDefaults.bool(forKey: AppFeature.notchMascot.availabilityKey)
-            && !companionDefaults.bool(forKey: DefaultsKey.notchMascotBetaInstalled)
         companionDefaults.set(true, forKey: AppFeature.notch.availabilityKey)
-        Defaults.installCompanionForBetaCommandBar(in: companionDefaults, isBeta: true)
-        let installed = companionDefaults.bool(forKey: AppFeature.notchMascot.availabilityKey)
-            && companionDefaults.bool(forKey: DefaultsKey.notchMascotEnabled)
-        companionDefaults.set(false, forKey: AppFeature.notchMascot.availabilityKey)
-        Defaults.installCompanionForBetaCommandBar(in: companionDefaults, isBeta: true)
-        let keptOut = !companionDefaults.bool(forKey: AppFeature.notchMascot.availabilityKey)
-        companionDefaults.removeObject(forKey: DefaultsKey.notchMascotBetaInstalled)
-        companionDefaults.set(false, forKey: AppFeature.commandBar.availabilityKey)
-        let noCommandBar = !Defaults.installsCompanionForBeta(in: companionDefaults, isBeta: true)
-        suite.expect(waitsForSetup && stableUntouched && noIsland && installed && keptOut && noCommandBar,
-                     "a beta installs the companion once for Command Bar users with the island after setup, even over setup's off, and leaves it out once uninstalled")
         suite.expect(AppAppearance.sanitized(nil) == .system
                 && AppAppearance.sanitized("nonsense") == .system,
                "an unknown stored appearance falls back to the system one")
@@ -122,10 +72,6 @@ enum PreferencesFeatureTests {
                "right-click Keep Awake toggle is opt-in")
         suite.expect(registeredDefaults[DefaultsKey.keepAwakeAllowDisplaySleep] as? Bool == false,
                "Keep Awake keeps the display on by default")
-        suite.expect(SettingsBackupSupport.exportKeys().contains(DefaultsKey.keepAwakeRightClickToggle),
-               "right-click Keep Awake preference follows settings backups")
-        suite.expect(SettingsBackupSupport.exportKeys().contains(DefaultsKey.keepAwakeAllowDisplaySleep),
-               "display sleep preference follows settings backups")
         suite.expect(registeredDefaults[DefaultsKey.keepAwakeExternalDisplay] as? Bool == false,
                "external-display Keep Awake is opt-in")
         suite.expect(registeredDefaults[DefaultsKey.keepAwakeConnectedToPower] as? Bool == false,
@@ -136,24 +82,16 @@ enum PreferencesFeatureTests {
                "running-apps Keep Awake starts with an empty app list")
         suite.expect(registeredDefaults[DefaultsKey.keepAwakeAutomationRequireAll] as? Bool == false,
                "matching every selected automation condition is opt-in")
-        suite.expect(SettingsBackupSupport.exportKeys().contains(DefaultsKey.keepAwakeAutomationRequireAll),
-               "the automation match mode follows settings backups")
-        suite.expect(SettingsBackupSupport.exportKeys().contains(DefaultsKey.keepAwakeRunningApps),
-               "running-apps Keep Awake preference follows settings backups")
-        suite.expect(SettingsBackupSupport.exportKeys().contains(DefaultsKey.keepAwakeRunningAppBundleIDs),
-               "running-apps Keep Awake app list follows settings backups")
         suite.expect(registeredDefaults[DefaultsKey.keepAwakePauseWhenLocked] as? Bool == false,
                "pausing Keep Awake on screen lock is opt-in")
-        suite.expect(SettingsBackupSupport.exportKeys().contains(DefaultsKey.keepAwakePauseWhenLocked),
-               "the Keep Awake screen-lock preference follows settings backups")
         suite.expect(registeredDefaults[DefaultsKey.hotkeyEnabled] as? Bool == true,
                "global hotkey is on for clean installs")
         suite.expect(registeredDefaults[DefaultsKey.keepAwakeShortcut] as? String == "control+option+command:40",
                "keep awake shortcut defaults to Ctrl+Opt+Cmd+K")
         suite.expect(registeredDefaults[DefaultsKey.keepAwakeIconTint] as? String == KeepAwakeIconTint.orange.rawValue,
                "keep-awake active icon tint defaults to orange")
-        suite.expect(registeredDefaults[DefaultsKey.keepAwakeActiveIcon] as? String == KeepAwakeActiveIcon.vorssaint.rawValue,
-               "keep-awake active icon defaults to the Vorssaint glyph")
+        suite.expect(registeredDefaults[DefaultsKey.keepAwakeActiveIcon] as? String == KeepAwakeActiveIcon.brim.rawValue,
+               "keep-awake active icon defaults to the Brim glyph")
         suite.expect(registeredDefaults[DefaultsKey.keepAwakeMouseJiggleEnabled] as? Bool == false,
                "Keep Awake mouse movement is opt-in")
         suite.expect(registeredDefaults[DefaultsKey.keepAwakeMouseJiggleInterval] as? Int == 5,
@@ -168,18 +106,16 @@ enum PreferencesFeatureTests {
                "invalid keep-awake active icon tint falls back to orange")
         suite.expect(Defaults.sanitizedKeepAwakeActiveIcon("coffee") == .coffee,
                "valid keep-awake active icon is preserved")
-        suite.expect(Defaults.sanitizedKeepAwakeActiveIcon("bad") == .vorssaint,
-               "invalid keep-awake active icon falls back to the Vorssaint glyph")
+        suite.expect(Defaults.sanitizedKeepAwakeActiveIcon("bad") == .brim,
+               "invalid keep-awake active icon falls back to the Brim glyph")
         suite.expect(KeepAwakeActiveIcon.eye.systemSymbolName == "eye.fill",
                "keep-awake eye option maps to its menu bar symbol")
         suite.expect(registeredDefaults[DefaultsKey.menuBarIconSymbol] as? String == "",
-               "the menu bar shows the Vorssaint glyph until a symbol is chosen")
+               "the menu bar shows the Brim glyph until a symbol is chosen")
         suite.expect(Defaults.sanitizedMenuBarIconSymbol("  bolt.fill\n") == "bolt.fill"
                      && Defaults.sanitizedMenuBarIconSymbol(" ") == ""
                      && Defaults.sanitizedMenuBarIconSymbol(nil) == "",
                "a typed menu bar symbol name loses its surrounding spaces, and blank keeps the glyph")
-        suite.expect(SettingsBackupSupport.exportKeys().contains(DefaultsKey.menuBarIconSymbol),
-               "the chosen menu bar symbol follows settings backups")
         let symbolExists: (String) -> Bool = { NSImage(systemSymbolName: $0, accessibilityDescription: nil) != nil }
         suite.expect(Defaults.menuBarIconSymbolToSave(typed: " bolt.fill ", opening: "", exists: symbolExists) == "bolt.fill"
                      && Defaults.menuBarIconSymbolToSave(typed: "bolt.fil", opening: "star.fill", exists: symbolExists) == "star.fill"
@@ -306,7 +242,7 @@ enum PreferencesFeatureTests {
             automaticSessionActive: true
         ) == .none, "the same unplug leaves an Any session running, which is why All exists")
         let automationEditor = (try? String(
-            contentsOfFile: "Sources/Vorssaint/UI/KeepAwakeAutomationView.swift",
+            contentsOfFile: "Sources/Brim/UI/KeepAwakeAutomationView.swift",
             encoding: .utf8)) ?? ""
         suite.expect(automationEditor.contains(".pickerStyle(.segmented)")
                 && automationEditor.contains(".controlSize(compact ? .small : .regular)"),

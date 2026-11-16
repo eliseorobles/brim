@@ -4,9 +4,15 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
+
+# Runners hold no certificate for Robles Consulting LLC (53X2V2R96G), so
+# CI signs ad-hoc, explicitly; local builds refuse to do that on their own.
+env:
+  BRIM_SIGN_IDENTITY: "-"
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -33,7 +39,7 @@ jobs:
         run: ./build.sh
 
       - name: Selftest
-        run: ./build/Vorssaint --selftest
+        run: ./build/Brim --selftest
 
       - name: Unit tests
         run: ./build.sh --test
@@ -51,10 +57,7 @@ jobs:
         run: ./build.sh
 
       - name: Selftest
-        run: ./build/Vorssaint --selftest
-
-      - name: Package DMG
-        run: ./Tools/make-dmg.sh
+        run: ./build/Brim --selftest
 
       - name: Unit tests
         run: ./build.sh --test

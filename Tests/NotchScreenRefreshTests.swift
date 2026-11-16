@@ -46,7 +46,7 @@ enum NotchScreenRefreshContract {
         final class Workspace { var frontmostApplication: RunningApplication? }
     }
     enum Bundle {
-        static let main = RunningApplication(bundleIdentifier: "com.vorssaint.tests.notch")
+        static let main = RunningApplication(bundleIdentifier: "brim.tests.notch")
     }
     enum ClipboardHistoryService {
         static let shared = History()
@@ -85,9 +85,9 @@ enum NotchScreenRefreshContract {
     final class NSScreen {
         static var screens: [NSScreen] = []
         static var withMouse: NSScreen? { screens.first { $0.frame.contains(NSEvent.mouseLocation) } }
-        let notchDisplayID: CGDirectDisplayID
+        let displayID: CGDirectDisplayID
         let frame: CGRect
-        init(_ id: CGDirectDisplayID, _ frame: CGRect) { notchDisplayID = id; self.frame = frame }
+        init(_ id: CGDirectDisplayID, _ frame: CGRect) { displayID = id; self.frame = frame }
     }
     final class Host {
         var rect = CGRect.zero
@@ -134,10 +134,8 @@ enum NotchScreenRefreshContract {
         var hiddenUntilHover = false
         /// Hidden until hover and set to show activity, as Settings has it.
         var hiddenShowsActivity = false
-        var captureControls: Bool?
-        var idleContent = NotchIdleContent.music
+        var idleContent = NotchIdleContent.agents
         var compactActivity: Bool?
-        var mascotWantsRoom = false
         var accessibilityGranted = true
         var coversMenus = false
         var menuSpaceTimer: Timer?
@@ -180,31 +178,21 @@ enum NotchScreenRefreshContract {
         var displayID: CGDirectDisplayID?
         var peeking = false
         var notice: Bool?
-        var heldDrag = false
-        var heldMusic: Bool?
-        var choosingFileDropDestination = false
         var screenUpdates = 0
         var consumerSyncs = 0
         var mirrorHeldForArrival: CGDirectDisplayID?
         var relocationTicket = 0
         var mirrorSyncs = 0, edgeClickSyncs = 0
-        var waveHolds: [CGDirectDisplayID] = []
-        var waveMatches = 0, waveKeeps = 0, waveReleases = 0
         var screenUpdateHook: (() -> Void)?
         var mirrorSyncHook: (() -> Void)?
-        var waveMatchHook: (() -> Void)?
         func syncMirrors() { mirrorSyncs += 1; mirrorSyncHook?() }
         func syncScreenEdgeClicks() { edgeClickSyncs += 1 }
-        func holdMusicWave(on id: CGDirectDisplayID) { waveHolds.append(id) }
-        func matchMusicWave() { waveMatches += 1; waveMatchHook?() }
-        func keepMusicWave() { waveKeeps += 1 }
-        func releaseMusicWave() { waveReleases += 1 }
         func NSMouseInRect(_ point: CGPoint, _ rect: CGRect, _ flipped: Bool) -> Bool { rect.contains(point) }
         /// The island takes the display its identifier names, as updateScreen does.
         func updateScreen() {
             screenUpdates += 1
             screenUpdateHook?()
-            if let screen = NSScreen.screens.first(where: { $0.notchDisplayID == displayID }) {
+            if let screen = NSScreen.screens.first(where: { $0.displayID == displayID }) {
                 geometry = NotchGeometry(screen: screen.frame, safeAreaTop: 0, cameraWidth: 0)
             }
         }
@@ -242,19 +230,19 @@ enum NotchScreenRefreshContract {
         DispatchQueue.main.advance(0)
         suite.expect(preferences.preferenceSyncs == 3,
                      "suspended islands still apply preference changes that stop disabled services")
-        let initialSize = service.geometry.compactMusicGeometry.compactActivitySize
+        let initialSize = service.geometry.compactKeepAwakeGeometry().compactActivitySize
         var pendingPeak = 0
         var geometryChanged = false
         for _ in 0..<120 {
             service.screenParametersDidChange()
             pendingPeak = max(pendingPeak, DispatchQueue.main.pending)
             DispatchQueue.main.advance(1.0 / 60)
-            geometryChanged = geometryChanged || service.geometry.compactMusicGeometry.compactActivitySize != initialSize
+            geometryChanged = geometryChanged || service.geometry.compactKeepAwakeGeometry().compactActivitySize != initialSize
         }
         suite.expect(service.preferenceSyncs == 0 && pendingPeak == 1,
                "a two-second screen-parameter burst retains one pending refresh instead of resynchronizing each event")
-        suite.expect(!geometryChanged && !service.geometry.compactMusicGeometry.compactActivityUsesFooter,
-               "brightness-only notifications preserve measured music wings and never move music below the camera")
+        suite.expect(!geometryChanged && !service.geometry.compactKeepAwakeGeometry().compactActivityUsesFooter,
+               "brightness-only notifications preserve measured wings and never move an activity below the camera")
         DispatchQueue.main.advance(0.11)
         suite.expect(service.preferenceSyncs == 1 && service.reads == 1 && service.screenRefreshWork == nil,
                "the settled screen configuration triggers one synchronization and menu measurement")
@@ -288,17 +276,11 @@ enum NotchScreenRefreshContract {
         fullscreen.syncMenuSpaceMonitoring()
         suite.expect(fullscreen.menuSpaceTimer != nil, "leaving fullscreen restores menu monitoring")
 
-        // A bare camera measures nothing, unless the companion wants its wings.
-        let companion = Service()
-        companion.idleContent = .none
-        companion.syncMenuSpaceMonitoring()
-        suite.expect(companion.menuSpaceTimer == nil, "a bare notch with nothing to show reads no menus")
-        companion.mascotWantsRoom = true
-        companion.syncMenuSpaceMonitoring()
-        suite.expect(companion.menuSpaceTimer != nil,
-                     "the companion measures the menus, so it rests beside the camera only where its wings fit")
-        companion.hiddenInFullscreen = true
-        companion.syncMenuSpaceMonitoring()
+        // A bare camera measures nothing.
+        let bare = Service()
+        bare.idleContent = .none
+        bare.syncMenuSpaceMonitoring()
+        suite.expect(bare.menuSpaceTimer == nil, "a bare notch with nothing to show reads no menus")
 
         let virtual = Service()
         virtual.geometry.compactSideRoom = nil
@@ -431,8 +413,8 @@ enum NotchScreenRefreshContract {
         let emptyBar = NotchMenuBarLayout.sideRoom(screen: covering.geometry.screen, cameraWidth: covering.geometry.cameraWidth,
                                                    barHeight: covering.geometry.menuBarHeight, occupied: [])
         suite.expect(covering.menuSpaceTimer == nil && covering.reads == 0 && covering.appliedRooms == [emptyBar]
-               && covering.geometry.compactTimerGeometry(showsDownloads: false).compactActivityWingWidth > 0,
-               "an island allowed to cover the menus keeps an empty bar's room, so its timer has wings, "
+               && covering.geometry.compactKeepAwakeGeometry().compactActivityWingWidth > 0,
+               "an island allowed to cover the menus keeps an empty bar's room, so its activity has wings, "
                + "without Accessibility or a menu reader")
         covering.accessibilityGranted = true
         covering.syncMenuSpaceMonitoring()
@@ -500,7 +482,7 @@ enum NotchScreenRefreshContract {
         pointerFollowContracts(suite)
         relocationContracts(suite)
 
-        let source = (try? String(contentsOfFile: "Sources/Vorssaint/Services/Notch/NotchService.swift",
+        let source = (try? String(contentsOfFile: "Sources/Brim/Services/Notch/NotchService.swift",
                                   encoding: .utf8)) ?? ""
         let code = source.components(separatedBy: "\n")
             .map { line in line.range(of: "//").map { String(line[..<$0.lowerBound]) } ?? line }
@@ -571,10 +553,7 @@ enum NotchScreenRefreshContract {
 
         let blockers: [(String, (Service) -> Void)] = [
             ("open", { $0.expanded = true }), ("peeking", { $0.peeking = true }), ("showing a notice", { $0.notice = true }),
-            ("showing capture controls", { $0.captureControls = true }), ("holding a drag", { $0.heldDrag = true }),
-            ("choosing where a file drops", { $0.choosingFileDropDestination = true }),
             ("keeping a working surface", { $0.keepsWorkingSurface = true }),
-            ("holding a song for its notice", { $0.heldMusic = true }),
         ]
         for (name, block) in blockers {
             let held = island()
@@ -631,21 +610,20 @@ enum NotchScreenRefreshContract {
         let movingHost = moving.windowHost!
         var heldDuringLayout = false
         var heldDuringReveal = false
-        moving.waveMatchHook = { [weak moving] in heldDuringLayout = moving?.mirrorHeldForArrival == 3 }
+        moving.presentationHook = { [weak moving] in heldDuringLayout = moving?.mirrorHeldForArrival == 3 }
         movingHost.didOrderFront = { [weak moving] in heldDuringReveal = moving?.mirrorHeldForArrival == 3 }
         moving.move(to: second)
         suite.expect(!movingHost.isVisible && movingHost.relocationPending && movingHost.orderFronts == 0
-                     && moving.mirrorHeldForArrival == 2 && moving.waveHolds == [1],
+                     && moving.mirrorHeldForArrival == 2,
                      "a visible island leaves before its frame moves and keeps the destination copy until arrival")
         moving.move(to: third)
         suite.expect(moving.mirrorHeldForArrival == 3 && moving.presentedDisplays == [2, 3]
-                     && movingHost.orderFronts == 0 && moving.waveHolds == [1, 2],
+                     && movingHost.orderFronts == 0,
                      "a second move takes over an arrival that has not yet returned to the screen")
         DispatchQueue.main.advance(0)
         suite.expect(moving.displayID == 3 && moving.geometry.screen == third.frame
                      && movingHost.isVisible && !movingHost.relocationPending && movingHost.orderFronts == 1
-                     && moving.mirrorHeldForArrival == nil && moving.waveMatches == 1 && moving.waveKeeps == 1
-                     && moving.waveReleases == 1 && moving.mirrorSyncs == 3 && moving.edgeClickSyncs == 1,
+                     && moving.mirrorHeldForArrival == nil && moving.mirrorSyncs == 3 && moving.edgeClickSyncs == 1,
                      "only the newest arrival reveals the island, releases its copies and restores edge clicks")
         suite.expect(heldDuringLayout && heldDuringReveal,
                      "layout keeps the arrival gate until native reveal, so a nested refresh cannot show an undrawn island")
@@ -654,7 +632,7 @@ enum NotchScreenRefreshContract {
         hidden.move(to: second)
         suite.expect(hidden.displayID == 2 && hidden.presentations == 1 && hidden.mirrorHeldForArrival == nil
                      && hidden.windowHost?.orderOuts == 0 && hidden.windowHost?.orderFronts == 0
-                     && hidden.waveReleases == 1 && DispatchQueue.main.pending == 0,
+                     && DispatchQueue.main.pending == 0,
                      "an already hidden island uses ordinary presentation without creating an arrival")
 
         let selected = island()
@@ -694,8 +672,7 @@ enum NotchScreenRefreshContract {
             if suspended { unavailable.suspended = true } else { unavailable.running = false }
             DispatchQueue.main.advance(0)
             suite.expect(host.hides == 1 && !host.isVisible && !host.relocationPending && host.orderFronts == 0
-                         && unavailable.mirrorHeldForArrival == nil && unavailable.waveMatches == 0
-                         && unavailable.waveReleases == 1 && unavailable.edgeClickSyncs == 0,
+                         && unavailable.mirrorHeldForArrival == nil && unavailable.edgeClickSyncs == 0,
                          "an arrival queued before \(suspended ? "suspension" : "stop") hides without reviving the island")
         }
 
@@ -710,7 +687,7 @@ enum NotchScreenRefreshContract {
         cancelled.windowHost = replacement
         DispatchQueue.main.advance(0)
         suite.expect(cancelled.mirrorHeldForArrival == nil && oldHost.orderFronts == 0 && replacement.isVisible
-                     && replacement.orderFronts == 0 && cancelled.waveMatches == 0 && cancelled.waveReleases == 1,
+                     && replacement.orderFronts == 0 && cancelled.edgeClickSyncs == 0,
                      "cancelling before teardown makes the old arrival inert even after presentation has restarted")
 
         let replaced = island()
@@ -721,7 +698,7 @@ enum NotchScreenRefreshContract {
         replaced.windowHost = unrelated
         DispatchQueue.main.advance(0)
         suite.expect(replacedHost.orderFronts == 0 && unrelated.orderFronts == 0 && unrelated.relocationPending
-                     && replaced.waveMatches == 0 && replaced.edgeClickSyncs == 0,
+                     && replaced.edgeClickSyncs == 0,
                      "host identity prevents a delayed arrival from revealing a replacement window")
 
         let interrupted = island()
@@ -744,20 +721,6 @@ enum NotchScreenRefreshContract {
                      && DispatchQueue.main.pending == 0,
                      "teardown during screen selection prevents presentation or a callback for the discarded host")
 
-        let matching = island()
-        let matchingHost = matching.windowHost!
-        matching.waveMatchHook = { [weak matching] in
-            matching?.waveMatchHook = nil
-            matching?.move(to: third)
-        }
-        matching.move(to: second)
-        DispatchQueue.main.advance(0)
-        suite.expect(matching.displayID == 3 && matching.presentedDisplays == [2, 3]
-                     && matchingHost.orderFronts == 1 && matchingHost.isVisible
-                     && matching.mirrorHeldForArrival == nil && matching.waveMatches == 2
-                     && matching.waveKeeps == 1 && matching.waveReleases == 1 && matching.edgeClickSyncs == 1,
-                     "a move reentered while copying bars owns the only reveal and release that follow")
-
         let mirroring = island()
         let mirroringHost = mirroring.windowHost!
         mirroring.mirrorSyncHook = { [weak mirroring] in
@@ -768,8 +731,7 @@ enum NotchScreenRefreshContract {
         mirroring.move(to: second)
         DispatchQueue.main.advance(0)
         suite.expect(mirroring.displayID == 3 && mirroringHost.orderFronts == 2 && mirroringHost.isVisible
-                     && mirroring.mirrorHeldForArrival == nil && mirroring.waveReleases == 1
-                     && mirroring.edgeClickSyncs == 1,
+                     && mirroring.mirrorHeldForArrival == nil && mirroring.edgeClickSyncs == 1,
                      "a move reentered while retiring a copy keeps its hold until its own arrival finishes")
 
         let revealed = island()
@@ -781,8 +743,7 @@ enum NotchScreenRefreshContract {
         revealed.move(to: second)
         DispatchQueue.main.advance(0)
         suite.expect(revealed.displayID == 3 && revealedHost.orderFronts == 2 && revealedHost.isVisible
-                     && revealed.mirrorHeldForArrival == nil && revealed.waveReleases == 1
-                     && revealed.waveKeeps == 1 && revealed.edgeClickSyncs == 1,
+                     && revealed.mirrorHeldForArrival == nil && revealed.edgeClickSyncs == 1,
                      "a native reveal that starts another move cannot finish the newer move's mirror handoff")
 
         let fullscreen = island()
@@ -791,8 +752,7 @@ enum NotchScreenRefreshContract {
         fullscreen.move(to: second)
         DispatchQueue.main.advance(0)
         suite.expect(fullscreenHost.hides == 1 && fullscreenHost.orderFronts == 0 && !fullscreenHost.isVisible
-                     && !fullscreenHost.relocationPending && fullscreen.mirrorHeldForArrival == nil
-                     && fullscreen.waveReleases == 1,
+                     && !fullscreenHost.relocationPending && fullscreen.mirrorHeldForArrival == nil,
                      "a presentation that hides on its destination stays hidden when the queued arrival runs")
     }
 }

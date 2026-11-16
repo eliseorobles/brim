@@ -43,8 +43,6 @@ enum NotchKeyMonitorTests {
         init(isFieldEditor: Bool) { self.isFieldEditor = isFieldEditor }
         func hasMarkedText() -> Bool { composing }
     }
-    final class MixerPercentNativeTextField {}
-    enum PlainTextEditor { static func findBarHasKeyboard(in window: Panel?) -> Bool { false } }
     final class Host {
         var underPointer = false
         func contains(_ point: CGPoint) -> Bool { underPointer }
@@ -57,50 +55,26 @@ enum NotchKeyMonitorTests {
     struct Application { let delegate: AnyObject? = nil }
     static let NSApp = Application()
     enum AssistiveKeyboard { static func ownsCocoaPoint(_ point: CGPoint) -> Bool { false } }
-    /// What each Escape did: the gallery toggled, Tools took it or the island closed.
+    /// What each key did: the gallery toggled, Settings opened or the island stepped back.
     static var actions: [String] = []
-    final class Launcher {
-        var isEditing = false
-        var visibleItems = [0, 1, 2]
-        var flows: [QuickToolsSupport.GridFlow] = []
-        func handlePanelKey(_ event: NSEvent, flow: QuickToolsSupport.GridFlow) -> NSEvent? {
-            NotchKeyMonitorTests.actions.append("tools")
-            flows.append(flow)
-            return nil
-        }
-    }
-    enum QuickLauncherService { static let shared = Launcher() }
 
     class State {
         var mirrors: [Int: Mirror] = [:]
         var eventMonitors: [Any] = []
         var clickedSinceOpening = false
         var showsKeyboardFocus = false
-        var keepsSurfaceOnClick = false, showsCapturePreview = false
-        var captureDismiss: (() -> Void)?
+        var keepsSurfaceOnClick = false
         let panel: Panel? = Panel()
         var windowHost: Host? = Host()
-        var captureControls: Int?
         var modules = NotchModule.allCases
         var selected = NotchModule.controls
-        var showingAppPanel = false
         var showingSections = false
-        var showingCommandBar = false
-        var geometry = NotchGeometry(screen: CGRect(x: 0, y: 0, width: 1470, height: 956),
-                                     safeAreaTop: 32, cameraWidth: 180)
-        var fullWidthRow = false
-        var expandedGeometry: NotchGeometry {
-            var result = geometry
-            result.requiresFullWidthHeader = fullWidthRow
-            return result
-        }
         func collapse() { NotchKeyMonitorTests.actions.append("collapse") }
         func openSettings() { NotchKeyMonitorTests.actions.append("settings") }
         func stepBack() { NotchKeyMonitorTests.actions.append("stepBack") }
         func toggleSections() { NotchKeyMonitorTests.actions.append("sections") }
         func select(_ module: NotchModule) { selected = module }
         func handleSectionKey(_ event: NSEvent) -> Bool { false }
-        func handleScratchpadKey(_ event: NSEvent) -> Bool { false }
         func handleClipboardPasteKey(_ event: NSEvent) -> Bool { false }
         func ownsWindow(_ window: Panel?) -> Bool { window === panel }
     }
@@ -120,18 +94,14 @@ enum NotchKeyMonitorTests {
         let mirror = Mirror()
         mirror.host.underPointer = true
         service.mirrors[1] = mirror
-        service.showsCapturePreview = true
-        var dismissals = 0
-        service.captureDismiss = { dismissals += 1 }
         let mirrorClick = NSEvent(type: .leftMouseDown, window: Panel(), keyCode: 0)
+        actions = []
         _ = NSEvent.handler?(mirrorClick)
-        suite.expect(dismissals == 0, "the local click monitor preserves a screenshot on a visible island copy")
+        suite.expect(actions.isEmpty, "the local click monitor keeps the island on a visible island copy")
         mirror.model.shown = false
         _ = NSEvent.handler?(mirrorClick)
-        suite.expect(dismissals == 1, "the local click monitor dismisses a screenshot at a hidden copy's old position")
-        service.showsCapturePreview = false
+        suite.expect(actions == ["collapse"], "the local click monitor collapses the island at a hidden copy's old position")
         service.mirrors = [:]
-        service.captureDismiss = nil
         let tab = NSEvent(window: service.panel, keyCode: 48)
         suite.expect(NSEvent.handler?(tab) != nil && service.showsKeyboardFocus,
                      "Tab restores visible focus and still reaches the controls for navigation")
@@ -143,45 +113,16 @@ enum NotchKeyMonitorTests {
         suite.expect(NSEvent.handler?(backTab) != nil && service.showsKeyboardFocus,
                      "reverse keyboard navigation restores visible focus without consuming Shift-Tab")
         let escape = NSEvent(window: service.panel, keyCode: 53)
-        // Each Escape branch, reached from a field that can hold a composing
-        // input method: the gallery search, a field in a Tools utility, one
-        // in the app panel and the Scratchpad editor.
-        let destinations: [(name: String, module: NotchModule, sections: Bool, appPanel: Bool,
-                            field: NSTextView, action: String)] = [
-            ("the gallery search", .controls, true, false, NSTextView(isFieldEditor: true), "sections"),
-            ("a Tools utility", .tools, false, false, NSTextView(isFieldEditor: true), "tools"),
-            ("the app panel", .tools, false, true, NSTextView(isFieldEditor: true), "stepBack"),
-            ("the Scratchpad editor", .scratchpad, false, false, NSTextView(isFieldEditor: false), "stepBack"),
-        ]
-        for destination in destinations {
-            service.selected = destination.module
-            service.showingSections = destination.sections
-            service.showingAppPanel = destination.appPanel
-            service.panel?.firstResponder = destination.field
-            destination.field.composing = true
-            actions = []
-            suite.expect(NSEvent.handler?(escape) != nil && actions.isEmpty,
-                         "a composing input method keeps Esc in \(destination.name)")
-            destination.field.composing = false
-            actions = []
-            suite.expect(NSEvent.handler?(escape) == nil && actions == [destination.action],
-                         "Esc reaches the island from \(destination.name) once composition ends")
-        }
-        // The Command Bar inside the island reads its own keys: Escape steps
-        // back through its search, and Command-K is its actions, not the gallery.
         service.selected = .controls
         service.showingSections = false
-        service.showingAppPanel = false
         service.panel?.firstResponder = nil
-        service.showingCommandBar = true
-        actions = []
-        let commandK = NSEvent(window: service.panel, keyCode: 40, modifierFlags: .command, charactersIgnoringModifiers: "k")
-        suite.expect(NSEvent.handler?(escape) != nil && NSEvent.handler?(commandK) != nil && actions.isEmpty,
-                     "the island hands Escape and its shortcuts to the Command Bar open inside it")
-        service.showingCommandBar = false
         actions = []
         suite.expect(NSEvent.handler?(escape) == nil && actions == ["stepBack"],
-                     "without the bar, Escape steps back through the island again")
+                     "Escape steps back through the island")
+        actions = []
+        let commandK = NSEvent(window: service.panel, keyCode: 40, modifierFlags: .command, charactersIgnoringModifiers: "k")
+        suite.expect(NSEvent.handler?(commandK) == nil && actions == ["sections"],
+                     "Command-K opens the sections gallery")
         // With no settings button in the island, Command-Comma opens its page.
         actions = []
         let commandComma = NSEvent(window: service.panel, keyCode: 43, modifierFlags: .command,
@@ -190,7 +131,7 @@ enum NotchKeyMonitorTests {
                      "Command-Comma opens the island's settings from inside it")
         // Keep open, Settings and Collapse have no button in the row; besides
         // the secondary-click menu, VoiceOver reaches them as named actions.
-        let islandSource = ((try? String(contentsOfFile: "Sources/Vorssaint/UI/Notch/NotchView.swift",
+        let islandSource = ((try? String(contentsOfFile: "Sources/Brim/UI/Notch/NotchView.swift",
                                          encoding: .utf8)) ?? "")
             .filter { !$0.isWhitespace }
         suite.expect([".accessibilityAction(named:service.pinned?text.unpin:text.pin){service.pinned.toggle()}",
@@ -198,24 +139,5 @@ enum NotchKeyMonitorTests {
                       ".accessibilityAction(named:text.collapse){service.collapse()}"]
                         .allSatisfy(islandSource.contains),
                      "the open island names Keep open, Settings and Collapse as accessibility actions")
-        // A top row that cannot wrap the camera takes a row below it, so a
-        // custom island leaves the Tools rail fewer rows than the island
-        // without its page would. The arrows walk the rail the page draws.
-        let launcher = QuickLauncherService.shared
-        let items = launcher.visibleItems
-        defer { launcher.visibleItems = items; launcher.flows = [] }
-        launcher.visibleItems = Array(0..<12)
-        service.selected = .tools
-        service.showingSections = false
-        service.showingAppPanel = false
-        service.panel?.firstResponder = nil
-        service.geometry = NotchGeometry(screen: CGRect(x: 0, y: 0, width: 1710, height: 1112), safeAreaTop: 37.5,
-                                         cameraWidth: 208, layout: .custom, customWidth: 480, customHeight: 330)
-        service.fullWidthRow = true
-        launcher.flows = []
-        _ = NSEvent.handler?(NSEvent(window: service.panel, keyCode: 125))
-        let drawn = service.expandedGeometry.toolFlow(count: 12)
-        suite.expect(launcher.flows == [drawn] && drawn != service.geometry.toolFlow(count: 12),
-                     "the Tools arrows follow the rail below a top row under the camera")
     }
 }

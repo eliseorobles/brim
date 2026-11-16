@@ -149,7 +149,7 @@ enum KeyboardFeatureTests {
         // symbols rather than on the private member holding them, so renaming
         // it stays green and dropping the ASCII-capable lookup goes red.
         let shortcutSource = (try? String(
-            contentsOfFile: "Sources/Vorssaint/Core/GlobalShortcut.swift",
+            contentsOfFile: "Sources/Brim/Core/GlobalShortcut.swift",
             encoding: .utf8)) ?? ""
         let shortcutCode = shortcutSource.split(separator: "\n", omittingEmptySubsequences: false)
             .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
@@ -199,17 +199,8 @@ enum KeyboardFeatureTests {
                "delete with a real modifier records instead of clearing")
         suite.expect(!GlobalShortcut.clearsShortcut(keyCode: Int64(kVK_ANSI_D), modifiers: []),
                "an ordinary key never clears the shortcut")
-        suite.expect(GlobalShortcut.finderRenameDefault.isValid
-                && GlobalShortcut.finderRenameDefault.displayString == "F2"
-                && GlobalShortcut(storageValue: GlobalShortcut.finderRenameDefault.storageValue)
-                    == .finderRenameDefault,
-               "a standalone function key records, displays and survives storage")
         suite.expect(!GlobalShortcut(keyCode: Int64(kVK_ANSI_F), modifiers: []).isValid,
                "a bare letter still cannot become a shortcut")
-        suite.expect(GlobalShortcut.finderRenameDefault.matches(keyCode: Int64(kVK_F2), modifiers: [])
-                && !GlobalShortcut.finderRenameDefault.matches(
-                    keyCode: Int64(kVK_F2), modifiers: [.command]),
-               "Finder rename matches the chosen key and no extra modifiers")
 
         // MARK: Shortcuts the app silences while a field is listening (#308)
 
@@ -218,15 +209,92 @@ enum KeyboardFeatureTests {
                "the list of features to silence has no repeats")
         suite.expect(GlobalShortcutRole.allCases.allSatisfy { silenced.contains($0.feature) },
                "every configurable shortcut's feature is silenced while recording")
-        suite.expect(silenced.contains(.windowLayout),
-               "the window layout keys are silenced too, though they have no role")
-        suite.expect(silenced.contains(.finderRename),
-               "the scoped Finder key steps aside while its recorder is listening")
-        suite.expect(silenced.contains(.switcher) && silenced.contains(.radialMenu)
-               && silenced.contains(.keepAwake) && silenced.contains(.clipboardHistory),
-               "the features that hold a global key are all in the silenced list")
         suite.expect(silenced.allSatisfy { AppFeature.allCases.contains($0) },
                "the silenced list only names real features, so re-syncing them restores the keys")
         GlobalShortcut.refreshLayoutLabels()
+    }
+}
+
+extension KeyboardFeatureTests {
+    /// The system-shortcut checks every kept hotkey relies on before it
+    /// registers, and the island's layout notice.
+    static func systemShortcutChecks(_ suite: TestSuite) {
+        // Exercise the same raw-flag constructor used by the WindowServer reader.
+        for modifiers in [GlobalShortcutModifiers(), [.control, .option]] {
+            let letter = GlobalShortcut(keyCode: Int64(kVK_ANSI_N), modifiers: modifiers)
+            let fnOwner = LiveSystemShortcut(id: 212, keyCode: letter.keyCode,
+                                             flags: modifiers.cgFlags.union(.maskSecondaryFn), enabled: true)
+            suite.expect(fnOwner.requiresFunctionKey && !GlobalShortcut.matchesLiveSystemShortcut(letter, entries: [fnOwner]),
+                   "an Fn-letter system owner does not reserve the same letter without Fn")
+            let plainOwner = LiveSystemShortcut(id: 213, keyCode: letter.keyCode, flags: modifiers.cgFlags, enabled: true)
+            suite.expect(GlobalShortcut.matchesLiveSystemShortcut(letter, entries: [plainOwner]),
+                   "a system owner that really uses the same modifiers remains protected")
+            let plist: [String: Any] = ["212": ["enabled": true,
+                "value": ["type": "standard", "parameters": [0, Int(letter.keyCode),
+                    Int(modifiers.cgFlags.union(.maskSecondaryFn).rawValue)]]]]
+            suite.expect(!GlobalShortcut.matchesSystemShortcut(letter, symbolicHotKeys: plist),
+                   "the preference fallback also retains the Fn requirement")
+        }
+        for code in [kVK_F2, kVK_LeftArrow] {
+            let key = GlobalShortcut(keyCode: Int64(code), modifiers: [])
+            let owner = LiveSystemShortcut(id: 1, keyCode: key.keyCode,
+                                           flags: .maskSecondaryFn, enabled: true)
+            suite.expect(GlobalShortcut.matchesLiveSystemShortcut(key, entries: [owner]),
+                   "function and navigation keys retain their intrinsic Fn system protection")
+        }
+
+        suite.expect(InputSourceSelection.shortCode(languages: ["ru"]) == "RU",
+               "the island's layout notice reads the source's language as a short code")
+        suite.expect(InputSourceSelection.shortCode(languages: ["zh-Hans", "zh"]) == "ZH",
+               "a script-qualified language still reads as its two letters")
+        suite.expect(InputSourceSelection.shortCode(languages: []).isEmpty,
+               "a source with no language leaves the notice its mark alone")
+        suite.expect(Set(GlobalShortcutRole.allCases.map(\.defaultShortcut)).count
+                == GlobalShortcutRole.allCases.count,
+               "no two shortcut roles share a default combination")
+    }
+}
+
+extension KeyboardFeatureTests {
+    /// The session watcher the shortcut recording tap and the island follow
+    /// across a fast user switch.
+    static func sessionActivityChecks(_ suite: TestSuite) {
+        // Launching into a session that is already switched away is announced
+        // before the tap owners exist to hear it, so the state is read rather
+        // than assumed. Anything unreadable counts as on screen because a
+        // wrong off state would never be corrected.
+        let onConsoleKey = kCGSessionOnConsoleKey as String
+        suite.expect(SessionActivitySupport.isOnConsole([onConsoleKey: true]),
+               "a session dictionary saying it holds the console reads as on screen")
+        suite.expect(!SessionActivitySupport.isOnConsole([onConsoleKey: false]),
+               "a session dictionary saying it does not hold the console reads as off screen")
+        suite.expect(SessionActivitySupport.isOnConsole([onConsoleKey: NSNumber(value: 1)]),
+               "the console flag is read when it arrives as a number")
+        suite.expect(SessionActivitySupport.isOnConsole(nil),
+               "an unreadable session reads as on screen because a wrong off would never be corrected")
+        suite.expect(SessionActivitySupport.isOnConsole([:]),
+               "a session without the console flag reads as on screen because a wrong off would never be corrected")
+        suite.expect(SessionActivitySupport.isOnConsole([onConsoleKey: "unexpected"]),
+               "an unexpected console flag reads as on screen because a wrong off would never be corrected")
+
+        let privateCenter = NotificationCenter()
+        let activity = SessionActivity(center: privateCenter, initialIsActive: { true })
+        var observedTransitions: [Bool] = []
+        activity.onChange { observedTransitions.append($0) }
+        suite.expect(activity.isActive, "session activity starts with the injected initial state")
+        privateCenter.post(name: NSWorkspace.sessionDidResignActiveNotification, object: nil)
+        suite.expect(!activity.isActive, "session activity transitions to inactive on resign")
+        privateCenter.post(name: NSWorkspace.sessionDidResignActiveNotification, object: nil)
+        privateCenter.post(name: NSWorkspace.sessionDidBecomeActiveNotification, object: nil)
+        suite.expect(activity.isActive, "session activity transitions to active on become-active")
+        suite.expect(observedTransitions == [false, true],
+               "the session activity handler records each state change and ignores duplicate notifications")
+
+        let sessionActivitySource = (try? String(
+            contentsOfFile: "Sources/Brim/Services/SessionActivity.swift",
+            encoding: .utf8)) ?? ""
+        suite.expect(sessionActivitySource.contains("sessionDidResignActiveNotification")
+                && sessionActivitySource.contains("sessionDidBecomeActiveNotification"),
+               "the session watcher follows both halves of a fast user switch")
     }
 }

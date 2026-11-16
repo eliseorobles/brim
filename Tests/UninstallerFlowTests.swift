@@ -2,10 +2,9 @@
 // Copyright (C) 2026 Vorssaint
 
 import AppKit
-import Carbon.HIToolbox
 import Combine
 
-/// Production selection and command-bar transitions run with controlled scan
+/// Production selection and removal transitions run with controlled scan
 /// callbacks. Files are disposable bundles; no installed apps or Trash are used.
 enum UninstallerFlowTests {
     struct Leftover: Equatable {
@@ -110,16 +109,6 @@ enum UninstallerFlowTests {
         var completedRemovals: [String] = []
         func finishRemovalAfterHomebrew(package: Package) { completedRemovals.append(package.id) }
     }
-    enum Feature {
-        case uninstaller
-        static var available = true
-        var isAvailable: Bool { Self.available }
-    }
-    final class Preferences {
-        static let standard = Preferences()
-        var enabled = true
-        func bool(forKey: String) -> Bool { enabled }
-    }
     final class Localization {
         static let shared = Localization()
         let s = Text()
@@ -129,72 +118,7 @@ enum UninstallerFlowTests {
             let uninstallerConfirmationExpired = "Expired"
         }
     }
-    enum Permission {
-        enum Target { case finder }
-        enum Status { case granted, undetermined, denied }
-        static var status: Status = .undetermined
-        static func automationStatus(for target: Target) -> Status { status }
-    }
-    enum Script {
-        static var requests = 0
-        static var reads = 0
-        static func consentToAutomate(bundleID: String) -> Bool {
-            requests += 1
-            return Permission.status == .granted
-        }
-        static func run(_ source: String) -> (ok: Bool, output: String) {
-            reads += 1
-            return (true, "/Applications/Fixture.app\n")
-        }
-    }
-    enum Finder {
-        typealias Permissions = Permission
-        typealias AppleScriptRunner = Script
-        static let finderBundleID = "com.apple.finder"
-    }
-    class ServiceState {
-        typealias AppUninstaller = Uninstaller
-        typealias AppFeature = Feature
-        typealias UserDefaults = Preferences
-        typealias L10n = Localization
-        var mode: Mode = .search
-        var uninstallWarning: String?
-        var uninstallFinderRequestID: UUID?
-        var pendingHomebrewRemoval: Uninstaller.HomebrewRemovalConfirmation?
-        var queryBeforeCompletion: String?
-        var completedQuery: String?
-        var savedQuery = ""
-        var aliasWarning: String?
-        var activeCategory: String?
-        var isPeekingHome = false
-        var cachedApps: [InstalledApps.InstalledApp] = []
-        struct Entry { let uninstallAppURL: URL? }
-        var uninstallSelectionEntries: [Entry] = []
-        func rebuildRunningEntries() {}
-        var submissions = 0
-        func refreshResults() {}
-        func refreshPanelLayout() {}
-        func entry(withID: String) -> (id: String, other: Bool)? { nil }
-        func leaveActions() { mode = .search }
-        func endCapturingShortcut() {}
-        func setCategory(_ value: String?) { activeCategory = value }
-        func hide() { mode = .search }
-        func runSelected() { submissions += 1 }
-    }
-
     static func run(_ suite: TestSuite) {
-        for status in [Permission.Status.undetermined, .denied] {
-            Permission.status = status
-            suite.expect(Finder.selectionURLs(requestPermission: false).isEmpty
-                         && Script.requests == 0 && Script.reads == 0,
-                         "passive Finder lookup never asks for missing consent")
-        }
-        Permission.status = .granted
-        suite.expect(Finder.selectionURLs(requestPermission: false).count == 1
-                     && Script.requests == 0 && Script.reads == 1,
-                     "existing Finder permission allows the contextual selection")
-        _ = Finder.selectionURLs(requestPermission: true)
-        suite.expect(Script.requests == 1, "explicit Finder action is the consent boundary")
         let fm = FileManager.default
         let root = fm.temporaryDirectory.resolvingSymlinksInPath().appendingPathComponent("uninstaller-flow-\(UUID())")
         defer {
@@ -211,7 +135,7 @@ enum UninstallerFlowTests {
                 let contents = url.appendingPathComponent("Contents", isDirectory: true)
                 try fm.createDirectory(at: contents, withIntermediateDirectories: true)
                 let data = try PropertyListSerialization.data(fromPropertyList: [
-                    "CFBundleIdentifier": "org.vorssaint.fixture.\(name)",
+                    "CFBundleIdentifier": "org.example.fixture.\(name)",
                     "CFBundlePackageType": "APPL", "CFBundleName": name,
                 ], format: .xml, options: 0)
                 try data.write(to: contents.appendingPathComponent("Info.plist"))
@@ -220,14 +144,11 @@ enum UninstallerFlowTests {
             let a = try makeApp("First")
             let b = try makeApp("Second")
             let uninstaller = Uninstaller.shared
-            let service = Service()
-            service.query = "First"
-            service.beginUninstallReview(appURL: a, entryID: "a")
-            suite.expect(service.mode == .uninstallReview(entryID: "a") && uninstaller.phase == .scanning,
-                         "accepted selection opens its review")
+            suite.expect(uninstaller.select(appURL: a) && uninstaller.phase == .scanning,
+                         "an accepted selection starts its scan")
             Queue.drain()
             let lateScan = Brew.shared.callback
-            service.stepBack()
+            uninstaller.reset()
             lateScan?(.success(nil))
             suite.expect(uninstaller.phase == .empty && uninstaller.target == nil,
                          "canceling while scanning prevents its late result from returning")
@@ -247,7 +168,7 @@ enum UninstallerFlowTests {
                          "a canceled scan cannot deliver into a new scan of the same app")
             uninstaller.reset()
             Queue.pending = []
-            service.beginUninstallReview(appURL: a, entryID: "a")
+            _ = uninstaller.select(appURL: a)
             Queue.drain()
             Brew.shared.callback?(.success(nil))
             suite.expect(uninstaller.phase == .results && uninstaller.items.count == 1,
@@ -267,9 +188,6 @@ enum UninstallerFlowTests {
             suite.expect(uninstaller.phase == .results && uninstaller.homebrewCheckFailed
                          && !uninstaller.canRemoveSelected && uninstaller.homebrewRemovalConfirmation == nil,
                          "failed Homebrew detection preserves review but authorizes neither removal route")
-            service.confirmUninstallReview(entryID: "a")
-            suite.expect(uninstaller.phase == .results && Brew.shared.uninstalled.isEmpty,
-                         "Command Bar confirmation cannot bypass a failed Homebrew check")
             let failedScan = Brew.shared.callback
             uninstaller.retryHomebrewCheck()
             suite.expect(uninstaller.phase == .scanning && !uninstaller.canRemoveSelected,
@@ -282,11 +200,9 @@ enum UninstallerFlowTests {
                          "a successful retry restores package confirmation and ignores late replies from the old scan")
             uninstaller.phase = .removing
             let originalItems = uninstaller.items
-            service.stepBack()
-            service.beginUninstallReview(appURL: b, entryID: "b")
-            suite.expect(service.mode == .search && service.uninstallWarning == "Removing"
+            suite.expect(!uninstaller.select(appURL: b)
                          && uninstaller.target?.url == a && uninstaller.items == originalItems,
-                         "choosing another app after leaving a removal preserves the active operation")
+                         "choosing another app during a removal preserves the active operation")
             uninstaller.reset()
             suite.expect(uninstaller.phase == .removing && uninstaller.target?.url == a,
                          "other surfaces cannot reset an active plain removal")
@@ -297,7 +213,7 @@ enum UninstallerFlowTests {
             Brew.shared.operationStatus = .init(action: .uninstall, package: Package(id: "first"), result: .running)
             let observation = Observation()
             uninstaller.homebrewRemovalObservation = AnyCancellable(observation.cancel)
-            service.beginUninstallReview(appURL: b, entryID: "b")
+            _ = uninstaller.select(appURL: b)
             uninstaller.reset()
             suite.expect(!observation.canceled && uninstaller.target?.url == a && uninstaller.homebrewPackage?.id == "first",
                          "a new selection or reset cannot discard package cleanup in progress")
@@ -306,9 +222,9 @@ enum UninstallerFlowTests {
             uninstaller.reset()
             suite.expect(uninstaller.phase == .empty && observation.canceled,
                          "a finished operation can be dismissed normally")
-            service.beginUninstallReview(appURL: root.appendingPathComponent("Missing.app"), entryID: "missing")
-            suite.expect(service.mode == .search && service.uninstallWarning == "Unavailable",
-                         "a vanished application reports rejection without opening an empty review")
+            suite.expect(!uninstaller.select(appURL: root.appendingPathComponent("Missing.app"))
+                         && uninstaller.target == nil && uninstaller.refusal != nil,
+                         "a vanished application is refused without opening an empty review")
             let link = root.appendingPathComponent("Link.app")
             try fm.createSymbolicLink(at: link, withDestinationURL: b)
             suite.expect(!uninstaller.select(appURL: link), "a symlink cannot be accepted as a removable bundle")
@@ -319,38 +235,8 @@ enum UninstallerFlowTests {
             suite.expect(uninstaller.refusal == nil, "a reset drops the last refusal")
             suite.expect(!uninstaller.select(appURL: link) && uninstaller.refusal != nil,
                          "the symlink is refused again before another app is chosen")
-            service.beginUninstallReview(appURL: b, entryID: "b")
+            _ = uninstaller.select(appURL: b)
             suite.expect(uninstaller.refusal == nil, "an accepted selection clears the last refusal")
-            service.mode = .uninstallHomebrewConfirm(entryID: "b")
-            service.uninstallFinderRequestID = UUID()
-            service.query = "A new search"
-            suite.expect(service.mode == .search && uninstaller.phase == .empty && service.query == "A new search",
-                         "typing or pasting a new query leaves both uninstall steps and preserves that query")
-            suite.expect(service.uninstallFinderRequestID == nil,
-                         "new search cancels a pending explicit Finder action")
-            for key in [kVK_Tab, kVK_Space, kVK_UpArrow, kVK_DownArrow] {
-                suite.expect(!service.handleUninstallKey(key, searchFieldFocused: false),
-                             "checklist key \(key) reaches the native control")
-            }
-            suite.expect(!service.handleUninstallKey(kVK_Return, searchFieldFocused: false)
-                         && service.submissions == 0,
-                         "Return on a focused control cannot submit removal instead")
-            suite.expect(service.handleUninstallKey(kVK_Return, searchFieldFocused: true)
-                         && service.submissions == 1,
-                         "Return in the search field retains the review action")
-            service.mode = .uninstallHomebrewConfirm(entryID: "b")
-            suite.expect(service.handleUninstallKey(kVK_Escape, searchFieldFocused: false)
-                         && service.mode == .uninstallReview(entryID: "b"),
-                         "Escape cancels just the package confirmation")
-            service.mode = .search
-            Preferences.standard.enabled = false
-            service.beginUninstallReview(appURL: b, entryID: "b")
-            suite.expect(service.mode == .search, "disabling the toggle rejects a previously offered row")
-            Preferences.standard.enabled = true
-            Feature.available = false
-            service.beginUninstallReview(appURL: b, entryID: "b")
-            suite.expect(service.mode == .search, "uninstalling the feature rejects a previously offered row")
-            Feature.available = true
             uninstaller.reset()
             _ = uninstaller.select(appURL: a)
             Queue.drain()
@@ -386,29 +272,8 @@ enum UninstallerFlowTests {
             } else {
                 suite.expect(false, "a Homebrew-managed app offers a package confirmation")
             }
-            service.cachedApps = [a, b].map {
-                InstalledApps.InstalledApp(id: $0.path, name: $0.lastPathComponent,
-                                          bundleID: nil, url: $0, isSystem: false)
-            }
-            service.uninstallSelectionEntries = [ServiceState.Entry(uninstallAppURL: b)]
-            _ = uninstaller.select(appURL: b)
-            uninstaller.phase = .done(freed: 0, failed: [Leftover(url: b)])
-            service.finishUninstallReview()
-            suite.expect(service.cachedApps.count == 2 && service.uninstallSelectionEntries.count == 1,
-                         "failed removals keep the still-installed app in both lists")
-            _ = uninstaller.select(appURL: b)
-            try fm.removeItem(at: b)
-            uninstaller.phase = .done(freed: 1, failed: [])
-            service.finishUninstallReview()
-            suite.expect(service.cachedApps.map(\.url) == [a] && service.uninstallSelectionEntries.isEmpty,
-                         "a confirmed removal disappears from the browse list and Finder shortcut")
-            suite.expect(Defaults.registeredDefaults[DefaultsKey.uninstallerCommandBarEnabled] as? Bool == false,
-                         "the integration starts off")
-            suite.expect(SettingsBackupSupport.exportKeys().contains(DefaultsKey.uninstallerCommandBarEnabled),
-                         "backup includes the command-bar preference")
-            suite.expect(Defaults.registeredDefaults[DefaultsKey.uninstallerWatchesTrash] as? Bool == false
-                            && SettingsBackupSupport.exportKeys().contains(DefaultsKey.uninstallerWatchesTrash),
-                         "the Trash cleanup offer starts off and travels with settings backup")
+            suite.expect(Defaults.registeredDefaults[DefaultsKey.uninstallerWatchesTrash] as? Bool == false,
+                         "the Trash cleanup offer starts off")
         } catch {
             suite.expect(false, "uninstaller fixture failed: \(error)")
         }

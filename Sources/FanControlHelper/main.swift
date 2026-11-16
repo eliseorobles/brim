@@ -8,8 +8,9 @@ import os
 private let log = Logger(subsystem: FanControlIdentifiers.helperID, category: "FanControl")
 
 private final class FanControlOwnership {
-    private let lockPath = "/var/run/vorssaint-fan-control.lock"
-    private let markerPath = "/var/run/vorssaint-fan-control.active"
+    // Brim's own names, shared by its release and Developer helpers so only one drives the fans.
+    private let lockPath = "/var/run/brim-fan-control.lock"
+    private let markerPath = "/var/run/brim-fan-control.active"
     private var lockFile: Int32 = -1
 
     var isHeld: Bool { lockFile >= 0 }
@@ -82,7 +83,7 @@ private final class FanControlOwnership {
 
 private final class FanControlController {
     private let log = Logger(subsystem: FanControlIdentifiers.helperID, category: "FanControl")
-    private let queue = DispatchQueue(label: "com.vorssaint.fan-control.helper")
+    private let queue = DispatchQueue(label: "com.roblesconsulting.brim.fan-control.helper")
     private let ownership = FanControlOwnership()
     private var hardware: FanControlHardware?
     private var owner: UUID?
@@ -577,7 +578,8 @@ private final class FanControlListenerDelegate: NSObject, NSXPCListenerDelegate 
 }
 
 private func runSelfTest() -> Bool {
-    guard FanControlIdentifiers.helperID.hasSuffix(".fan-control"),
+    // Proves at build time that the helper reads the app ID from its signature.
+    guard !FanControlIdentifiers.appBundleID.isEmpty,
           FanControlPolicy.coolingDuration == 900,
           FanControlPolicy.validCoolingLevel(FanControlPolicy.defaultCoolingLevel),
           FanControlPolicy.validConfiguration(.curve([FanControlConfiguration.defaultCurve])),
@@ -593,6 +595,12 @@ if ProcessInfo.processInfo.arguments.contains("--selftest") {
 
 guard geteuid() == 0 else {
     log.error("The helper must run as root")
+    exit(EXIT_FAILURE)
+}
+
+// Without the identity it was signed with, the helper cannot tell its app from any other.
+guard !FanControlIdentifiers.appBundleID.isEmpty else {
+    log.error("The helper could not read the identity it was signed with")
     exit(EXIT_FAILURE)
 }
 

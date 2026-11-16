@@ -19,8 +19,9 @@ enum PreferenceNamespaceTests {
 
         suite.expect(!sweptNamespaces.isEmpty,
                      "the preference cleanup namespaces read back out of build.sh")
-        suite.expect(sweepBody.contains(#"rm -f "$preferences"/$name*.plist(N)"#),
-                     "the preference cleanup removes every plist in each swept namespace")
+        suite.expect(sweptNamespaces == ["brim.tests."]
+                        && sweepBody.contains(#"rm -f "$preferences"/$namespace*.plist(N)"#),
+                     "the preference cleanup removes every plist in the one swept namespace")
         suite.expect(buildScript.range(of: #"(?m)^\s*Tests/\*\.swift\s*\\?\s*$"#,
                                        options: .regularExpression) != nil,
                      "build.sh compiles every Swift test file inspected by the namespace guard")
@@ -49,17 +50,17 @@ enum PreferenceNamespaceTests {
                      "the preference namespace guard discovers suite declarations")
 
         let constructor = "UserDefaults(suiteName" + ": "
-        suite.expect(suiteNames(in: constructor + #""vorss.tests.literal")"#)
-                         == ["vorss.tests.literal"],
+        suite.expect(suiteNames(in: constructor + #""brim.tests.literal")"#)
+                         == ["brim.tests.literal"],
                      "literal preference suite names are recognized")
-        suite.expect(suiteNames(in: #"let name = "com.vorssaint.tests.local""# + "\n"
-                         + constructor + "name)") == ["com.vorssaint.tests.local"],
+        suite.expect(suiteNames(in: #"let name = "brim.tests.local""# + "\n"
+                         + constructor + "name)") == ["brim.tests.local"],
                      "locally declared literal preference suite names are resolved")
-        let reusedName = #"let name = "vorss.tests.first""# + "\n"
+        let reusedName = #"let name = "brim.tests.first""# + "\n"
             + constructor + "name)\n"
             + #"let name = "unsafe.temporary""# + "\n"
             + constructor + "name)"
-        suite.expect(suiteNames(in: reusedName) == ["vorss.tests.first", "unsafe.temporary"],
+        suite.expect(suiteNames(in: reusedName) == ["brim.tests.first", "unsafe.temporary"],
                      "reused local preference suite names resolve at each call")
         suite.expect(!suiteNames(in: reusedName).allSatisfy(isSwept),
                      "a temporary unswept preference namespace fails the guard")

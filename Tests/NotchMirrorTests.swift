@@ -13,11 +13,11 @@ enum NotchMirrorContract {
         static var screens: [NSScreen] = []
         static var screensHaveSeparateSpaces = true
         static var withMenuBar: NSScreen? { screens.first }
-        let notchDisplayID: CGDirectDisplayID
+        let displayID: CGDirectDisplayID
         let frame: CGRect
         let notched: Bool
         init(_ id: CGDirectDisplayID, _ frame: CGRect, notched: Bool = false) {
-            notchDisplayID = id
+            displayID = id
             self.frame = frame
             self.notched = notched
         }
@@ -42,7 +42,7 @@ enum NotchMirrorContract {
         var presented: [(size: CGSize, geometry: NotchGeometry, animated: Bool, transition: NotchContentTransition)] = []
         var hides = 0, closes = 0
         var hideAnimations: [Bool] = [], reveals: [Bool] = []
-        var outline: (enabled: Bool, color: NSColor)?
+        var outline: Bool?
         var activationRect = CGRect.zero
         var activate: (() -> Void)?
         var settling = false
@@ -54,7 +54,7 @@ enum NotchMirrorContract {
         }
         func hide(animated: Bool) { hides += 1; hideAnimations.append(animated); panel.isVisible = false }
         func close() { closes += 1; panel.isVisible = false }
-        func setOutline(enabled: Bool, color: NSColor) { outline = (enabled, color) }
+        func setOutline(enabled: Bool) { outline = enabled }
         func setActivationArea(_ rect: CGRect, title: String, willPress: @escaping () -> Void, activate: @escaping () -> Void) {
             activationRect = rect
             self.activate = activate
@@ -89,17 +89,12 @@ enum NotchMirrorContract {
         var fullscreenSpaceDisplays: Set<CGDirectDisplayID> = []
         var mirrorsHiddenByApp: Set<CGDirectDisplayID> = []
         var compactActivity: NotchCompactActivity?
-        var compactCompanion: NotchCompactActivity?
         var idleContent = NotchIdleContent.none
-        var mascotVisible = false
-        func mascotShows(on geometry: NotchGeometry) -> Bool {
-            mascotVisible && (geometry.floats || geometry.restingWingWidth > 0)
-        }
         var expanded = false, peeking = false, canFollowPointer = true
         var hidesUntilHover = false, hiddenShowsActivity = false, coversMenus = true, showsInCaptures = true
         var outlineEnabled = false, hidesInFullscreen = false
         let openTitle = "Open"
-        var opened = 0, collapses = 0, countdownOpenings = 0
+        var opened = 0, collapses = 0
         var moves: [CGDirectDisplayID] = []
         var made: [Host] = []
 
@@ -110,14 +105,12 @@ enum NotchMirrorContract {
                           silhouette: .capsule)
         }
         /// Each activity's capsule a fixed width wider than the bare one, so sizes are traceable.
-        func capsuleStripSize(for activity: NotchCompactActivity, companion: NotchCompactActivity?,
-                              geometry: NotchGeometry?) -> CGSize {
+        func capsuleStripSize(for activity: NotchCompactActivity, geometry: NotchGeometry?) -> CGSize {
             let geometry = geometry!
             return CGSize(width: geometry.restingSize(showsContent: false).width + 40, height: geometry.stripHeight)
         }
-        func compactGeometry(for activity: NotchCompactActivity?, companion: NotchCompactActivity?,
-                             base: NotchGeometry?) -> NotchGeometry {
-            base!.compactTimerGeometry(showsDownloads: false, wing: 60)
+        func compactGeometry(for activity: NotchCompactActivity?, base: NotchGeometry?) -> NotchGeometry {
+            base!.compactKeepAwakeGeometry(wing: 60)
         }
         func makeMirror(geometry: NotchGeometry, size: CGSize) -> NotchMirror {
             let host = Host()
@@ -126,8 +119,7 @@ enum NotchMirrorContract {
         }
         func collapse() { collapses += 1; expanded = false; peeking = false }
         func open() { opened += 1; expanded = true }
-        func openCountdownEvent() { countdownOpenings += 1; expanded = true }
-        func move(to screen: NSScreen) { displayID = screen.notchDisplayID; moves.append(screen.notchDisplayID) }
+        func move(to screen: NSScreen) { displayID = screen.displayID; moves.append(screen.displayID) }
     }
 
     static func run(_ suite: TestSuite) {
@@ -159,13 +151,13 @@ enum NotchMirrorContract {
                      "an island that changes nothing a copy shows leaves the copy as it is")
 
         service.outlineEnabled = true
-        service.compactActivity = .timer
+        service.compactActivity = .keepAwake
         service.syncMirrors()
         suite.expect(capsule?.host.presented.count == 2 && capsule?.host.presented.last?.transition == .replace
                      && capsule?.host.presented.last?.animated == true
                      && capsule?.model.size.width == external2.restingSize(showsContent: false).width + 40
-                     && capsule?.host.outline?.enabled == true && capsule?.host.outline?.color == .systemOrange,
-                     "a timer starting reshapes each copy as the island does, in the timer's outline")
+                     && capsule?.host.outline == true,
+                     "an activity starting reshapes each copy as the island does, with the optional outline")
 
         let trading = Service()
         trading.syncMirrors()
@@ -191,7 +183,7 @@ enum NotchMirrorContract {
         var builtInBase = service.baseGeometry(for: builtIn)
         builtInBase.compactSideRoom = NotchMenuBarLayout.sideRoom(screen: builtInBase.screen, cameraWidth: builtInBase.cameraWidth,
                                                                   barHeight: builtInBase.menuBarHeight, occupied: [])
-        let strip = service.compactGeometry(for: .timer, companion: nil, base: builtInBase)
+        let strip = service.compactGeometry(for: .keepAwake, base: builtInBase)
         suite.expect(capsule?.model.shown == false && capsule?.host.hides == 1 && capsule?.host.panel.isVisible == false
                      && notch?.model.shown == true && notch?.model.geometry.isNotched == true
                      && notch?.model.strip == strip && notch?.model.size == strip.compactActivitySize
@@ -278,12 +270,12 @@ enum NotchMirrorContract {
         service.syncMirrors()
         service.hiddenShowsActivity = true
         service.syncMirrors()
-        suite.expect(notch?.model.shown == true && notch?.model.activity == .timer && notch?.host.panel.isVisible == true,
+        suite.expect(notch?.model.shown == true && notch?.model.activity == .keepAwake && notch?.host.panel.isVisible == true,
                      "copies of a hidden island set to show activity draw the activity it shows")
         service.compactActivity = nil
         service.syncMirrors()
         suite.expect(notch?.model.shown == false, "the copies of a hidden island go once its activity ends")
-        service.compactActivity = .timer
+        service.compactActivity = .keepAwake
         service.hiddenShowsActivity = false
         service.hidesUntilHover = false
         service.syncMirrors()
@@ -302,17 +294,6 @@ enum NotchMirrorContract {
         service.coversMenus = true
         NSScreen.screensHaveSeparateSpaces = false
 
-        // The companion rests in each copy too, beside that display's camera.
-        service.displayID = 2
-        service.compactActivity = nil
-        service.mascotVisible = true
-        service.syncMirrors()
-        suite.expect(service.mirrors[1]?.model.size == service.mirrors[1]?.model.geometry.collapsed
-                     && (service.mirrors[1]?.model.size.width ?? 0) > builtInBase.cameraWidth,
-                     "a copy beside a camera opens its wings for the resting companion")
-        service.mascotVisible = false
-        service.syncMirrors()
-
         // A click on a copy brings the island there, open, closing it where it was.
         service.displayID = 2
         service.expanded = true
@@ -325,11 +306,6 @@ enum NotchMirrorContract {
         service.mirrors[2]?.host.activate?()
         service.canFollowPointer = true
         suite.expect(service.opened == opened, "a notice or a drag keeps the island where it is")
-        service.compactActivity = .calendar
-        service.mirrors[2]?.host.activate?()
-        service.compactActivity = nil
-        suite.expect(service.countdownOpenings == 1 && service.opened == opened,
-                     "clicking a copy of an event countdown opens on its event")
 
         // Unplugging a display closes its copy; leaving the choice closes them all.
         service.displayID = 1
@@ -357,8 +333,8 @@ enum NotchMirrorContract {
         let model = NotchMirrorModel(geometry: external2, size: CGSize(width: 100, height: 24))
         suite.expect(!model.update(geometry: external2, strip: external2, size: CGSize(width: 100, height: 24), activity: nil)
                      && model.update(geometry: external2, strip: external2, size: CGSize(width: 120, height: 24), activity: nil)
-                     && model.update(geometry: external2, strip: external2, size: CGSize(width: 120, height: 24), activity: .music)
-                     && model.activity == .music,
+                     && model.update(geometry: external2, strip: external2, size: CGSize(width: 120, height: 24), activity: .agents)
+                     && model.activity == .agents,
                      "a copy is only redrawn when what it shows changes")
     }
 
@@ -409,7 +385,7 @@ enum NotchMirrorContract {
         suite.expect(!hiddenCopy.model.shown && !hiddenCopy.host.panel.isVisible && hiddenCopy.host.hides == 1,
                      "hide-until-hover removes a held copy when it has no activity to keep visible")
 
-        let active = arriving(activity: .music)
+        let active = arriving(activity: .agents)
         let activeCopy = active.mirrors[2]!
         active.hidesUntilHover = true
         active.hiddenShowsActivity = true

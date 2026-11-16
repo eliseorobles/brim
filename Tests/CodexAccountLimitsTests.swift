@@ -6,7 +6,6 @@ import Foundation
 
 enum CodexAccountLimitsTests {
     static func run(_ suite: TestSuite) {
-        strings(suite)
         rules(suite)
         let manager = FileManager.default
         let root = manager.temporaryDirectory.appendingPathComponent("codex-accounts-" + UUID().uuidString)
@@ -23,18 +22,6 @@ enum CodexAccountLimitsTests {
             try conversations(suite, root: root, profiles: profiles)
             lifecycle(suite, profiles: profiles)
         } catch { suite.expect(false, "Codex account contract: \(error)") }
-    }
-
-    private static func strings(_ suite: TestSuite) {
-        // The app speaks to the person formally in Russian and Ukrainian.
-        let informal: [AppLanguage: String] = [
-            .ru: #"(?i)\b(выбери|войди|обнови|попробуй|ты|тебе|тебя|твой|твоя)\b"#,
-            .uk: #"(?i)\b(вибери|увійди|онови|спробуй|ти|тобі|тебе|твій|твоя)\b"#]
-        for (language, pattern) in informal {
-            let text = Mirror(reflecting: FeatureStrings.codexAccounts(language)).children.compactMap { $0.value as? String }
-            suite.expect(!text.isEmpty && text.allSatisfy { $0.range(of: pattern, options: .regularExpression) == nil },
-                         "Codex account text uses the formal register in \(language.rawValue)")
-        }
     }
 
     private static func rules(_ suite: TestSuite) {
@@ -169,11 +156,6 @@ enum CodexAccountLimitsTests {
                         && CodexAccountProfile.decode(CodexAccountProfile.encode(many)).count == CodexAccountProfile.maximum
                         && CodexAccountProfile.decode(String(repeating: "x", count: 65_537)).isEmpty,
                      "malformed, oversized and extra saved accounts are bounded")
-        let payload: [String: Any] = [SettingsBackupSupport.formatVersionKey: 1,
-            SettingsBackupSupport.settingsKey: [DefaultsKey.notchAgentsCodexProfiles: CodexAccountProfile.encode(profiles)]]
-        suite.expect(!SettingsBackupSupport.exportKeys().contains(DefaultsKey.notchAgentsCodexProfiles)
-                        && SettingsBackupSupport.sanitizedSettings(from: payload)?[DefaultsKey.notchAgentsCodexProfiles] == nil,
-                     "neither a settings export nor an import carries Codex account folders")
     }
 
     /// Plays one server per home, and logs what each is asked there. A
@@ -315,7 +297,7 @@ enum CodexAccountLimitsTests {
     }
 
     private static func lifecycle(_ suite: TestSuite, profiles: [CodexAccountProfile]) {
-        let domain = "com.vorssaint.tests.codex-accounts." + UUID().uuidString
+        let domain = "brim.tests.codex-accounts." + UUID().uuidString
         let defaults = UserDefaults(suiteName: domain)!
         defer { defaults.removePersistentDomain(forName: domain) }
         // The registration domain is shared with other suites, so this one

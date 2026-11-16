@@ -1,5 +1,0 @@
-module CoreAudioTapCompat {
-    requires objc
-    header "include/CoreAudioTapCompat.h"
-    export *
-}

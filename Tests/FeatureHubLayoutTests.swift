@@ -39,13 +39,6 @@ enum FeatureHubLayoutTests {
         func groupCard(_ group: FeatureGroup) -> some View {
             SettingsCard {
                 Text(group.rawValue)
-                ForEach(AppFeature.features(in: group), id: \.self) { feature in
-                    if [.clipboardHistory, .mixer, .screenRecorder, .fanControl].contains(feature) {
-                        FeatureRow(feature: feature).frame(height: 44)
-                    } else {
-                        Text(feature.rawValue).frame(height: 44)
-                    }
-                }
             }
             .id(group)
         }
@@ -178,54 +171,6 @@ enum FeatureHubLayoutTests {
         }
         // Check the middle of the page as well as the last row: staying at
         // the document's bottom alone can hide a lost offscreen anchor.
-        for feature: AppFeature in [.clipboardHistory, .mixer, .screenRecorder, .fanControl] {
-            runtime.needsRestartToUnload = false
-            runtime.offersNeverUsed = true
-            settle()
-            guard let marker = row(feature, in: host) else {
-                suite.expect(false, "\(feature.rawValue) has a laid-out row before scrolling")
-                continue
-            }
-            scrollToOffset(marker.convert(marker.bounds, to: document).midY - scroll.contentView.bounds.height / 2)
-            settle()
-            guard let initial = rowFrame(feature), host.bounds.contains(initial) else {
-                suite.expect(false, "\(feature.rawValue) is visible before changing availability")
-                continue
-            }
-            // Uninstall adds the restart notice above the viewport; reinstall
-            // removes it. Repeat without scrolling, as in the reported failure.
-            for restart in [true, false, true, false] {
-                withAnimation(.easeOut(duration: 0.22)) {
-                    runtime.needsRestartToUnload = restart
-                }
-                settle()
-                let current = rowFrame(feature)
-                suite.expect(current.map { host.bounds.contains($0) } == true,
-                             "\(feature.rawValue) stays visible when the offscreen restart notice is \(restart ? "added" : "removed")")
-                suite.expect(current.map { abs($0.midY - initial.midY) < 2 } == true,
-                             "changing the restart notice preserves \(feature.rawValue)'s position: \(String(describing: current)) vs \(initial)")
-                suite.expect(abs(scroll.contentView.bounds.minY
-                    - scroll.contentView.constrainBoundsRect(scroll.contentView.bounds).minY) < 2,
-                             "changing the restart notice keeps the viewport inside the document")
-            }
-            // Uninstalling the last of three never-used features takes that
-            // offer away above the viewport too, with or without a notice.
-            for (offers, restart) in [(false, true), (true, false), (false, true), (true, true), (false, true)] {
-                withAnimation(.easeOut(duration: 0.22)) {
-                    runtime.offersNeverUsed = offers
-                    runtime.needsRestartToUnload = restart
-                }
-                settle()
-                let current = rowFrame(feature)
-                suite.expect(current.map { host.bounds.contains($0) } == true,
-                             "\(feature.rawValue) stays visible when the offscreen never-used offer is \(offers ? "added" : "removed")")
-                suite.expect(current.map { abs($0.midY - initial.midY) < 2 } == true,
-                             "changing the never-used offer preserves \(feature.rawValue)'s position: \(String(describing: current)) vs \(initial)")
-                suite.expect(abs(scroll.contentView.bounds.minY
-                    - scroll.contentView.constrainBoundsRect(scroll.contentView.bounds).minY) < 2,
-                             "changing the never-used offer keeps the viewport inside the document")
-            }
-        }
     }
 
     private static func row(_ feature: AppFeature, in view: NSView) -> FeatureRowView? {

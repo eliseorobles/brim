@@ -145,7 +145,7 @@ enum MenuPanelRecoveryTests {
     final class StatusController {
         var held = false
         let button: NSStatusBarButton? = NSStatusBarButton()
-        func setMicBadgeHeld(_ value: Bool) { held = value }
+        func setPanelSignalsHeld(_ value: Bool) { held = value }
     }
     typealias MetricDetailKind = String
     struct MenuBarMetric { let detailKind: String }
@@ -304,7 +304,7 @@ enum MenuPanelRecoveryTests {
             host.popoverWillClose(Notification(name: Notification.Name("willClose")))
             host.popoverDidClose(Notification(name: Notification.Name("closed")))
         }
-        // A close Vorssaint asks for itself, which marks it app requested.
+        // A close Brim asks for itself, which marks it app requested.
         func requestClose(_ host: Host, _ reason: PanelCloseReason) {
             host.closePopoverNow(animated: false, reason: reason, completion: nil)
             host.popoverWillClose(Notification(name: Notification.Name("willClose")))
@@ -843,7 +843,7 @@ enum MenuPanelRecoveryTests {
             close(host)
             DispatchQueue.main.drain()
             expect(!host.popover.isShown && source.activations == 0,
-                   "a close Vorssaint did not ask for does not hand activation back")
+                   "a close Brim did not ask for does not hand activation back")
         }
         do {
             let host = setup()

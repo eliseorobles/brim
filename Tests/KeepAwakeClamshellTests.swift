@@ -452,7 +452,7 @@ enum KeepAwakeClamshellTests {
         }
 
         for lid in [false, nil] as [Bool?] {
-            let service = active(); C.BrightnessService.lid = lid
+            let service = active(); C.LidDisplayDimmer.lid = lid
             service.deactivate(reason: .quit)
             expect(C.calls == 0 && C.Thread.waits == 0 && !C.Sudoers.disabled,
                    "quit with an open or unknown lid restores normally without sleep or retry waits")
@@ -475,7 +475,7 @@ enum KeepAwakeClamshellTests {
             let service = active(); C.results = [1]
             C.Thread.onWait = {
                 switch change {
-                case 0: C.BrightnessService.lid = false
+                case 0: C.LidDisplayDimmer.lid = false
                 case 1: C.policy = false
                 case 2: C.assertions = [["AssertType": "PreventSystemSleep", "AssertLevel": 1, "AppliesOnLidClose": true]]
                 default: C.assertions = nil
@@ -624,7 +624,7 @@ enum KeepAwakeClamshellTests {
         C.Sudoers.installCompletions.forEach { $0(true) }; C.drain()
         expect(staleSetup.clamshellPreferred && C.AdminShell.prompts == 1,
                "a setup reply invalidated by restore cannot open another prompt or turn off the saved preference")
-        C.BrightnessService.lid = false
+        C.LidDisplayDimmer.lid = false
         C.AdminShell.answer(true); C.drain()
         expect(!C.Sudoers.disabled && !C.UserDefaults.standard.bool(forKey: C.DefaultsKey.sleepDisabledFlag),
                "late setup probes cannot resurrect the override cleared by authorized restore")

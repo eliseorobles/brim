@@ -10,41 +10,10 @@ enum NotchFullscreenTests {
         static let standard = Preferences()
         final class Preferences {
             var enabled = false
-            var preciseVolume = false
             func bool(forKey key: String) -> Bool {
-                switch key {
-                case DefaultsKey.notchHideInFullscreen: return enabled
-                case DefaultsKey.preciseVolumeRollerEnabled: return preciseVolume
-                default: return false
-                }
+                key == DefaultsKey.notchHideInFullscreen && enabled
             }
         }
-    }
-    enum AppFeature {
-        static let mixer = Feature()
-        static let brightness = Feature()
-        struct Feature { let isAvailable = true }
-    }
-    final class BrightnessService {
-        static let shared = BrightnessService()
-        var syncs = 0
-        var wantsMonitorVolumeKeys = false
-        func syncWithPreferences() { syncs += 1 }
-    }
-    enum NotchSupport {
-        enum Event { case volume }
-        static func routes(_ event: Event) -> Bool { true }
-    }
-    enum SessionActivity {
-        static let shared = Session()
-        struct Session { let isActive = true }
-    }
-    static func AXIsProcessTrusted() -> Bool { true }
-    enum NotchService { static var shared = Service() }
-    class VolumeState {
-        var running = false
-        func start() { running = true }
-        func stop() { running = false }
     }
     enum NSScreen { static var screensHaveSeparateSpaces = true }
     enum SpaceWindowBridge {
@@ -63,13 +32,11 @@ enum NotchFullscreenTests {
         var windowHost: Host? = Host()
         struct Host { var isConcealedForMissionControl = false }
         var screenUpdate: (() -> Void)?
-        var heldDrag = true, dragPlaceholder = true, noticeExpanded = true
         var hoverWork: DispatchWorkItem?, noticeWork: DispatchWorkItem?
         var notice: Bool? = true
-        var collapses = 0, cancellations = 0, screenUpdates = 0, consumerSyncs = 0, refreshes = 0, departures = 0
+        var collapses = 0, screenUpdates = 0, consumerSyncs = 0, refreshes = 0, departures = 0
         var hiddenByFullscreenSpace = false, revealingFromAppFullscreen = false
         var refreshAnimations: [Bool] = [], refreshReveals: [Bool] = []
-        func cancelCaptureControls() { cancellations += 1 }
         func endDeparture() { departures += 1 }
         func collapse() { collapses += 1 }
         func updateScreen() { screenUpdates += 1; screenUpdate?() }
@@ -86,12 +53,9 @@ enum NotchFullscreenTests {
     static func run(_ suite: TestSuite) {
         defer {
             UserDefaults.standard.enabled = false
-            UserDefaults.standard.preciseVolume = false
             NSScreen.screensHaveSeparateSpaces = true
             SpaceWindowBridge.value = nil
             NotchAppFullscreen.covered = []
-            NotchService.shared = Service()
-            PreciseVolumeRollerService.shared.stop()
         }
         let topology = Topology(displays: [
             .init(displayID: 1, spaces: [10, 11], fullscreenSpaces: [11], currentSpace: 10),
@@ -122,20 +86,15 @@ enum NotchFullscreenTests {
         service.hoverWork = DispatchWorkItem {}
         service.noticeWork = DispatchWorkItem {}
         let hover = service.hoverWork!, notice = service.noticeWork!
-        let brightnessSyncs = BrightnessService.shared.syncs
         service.updateFullscreenVisibility(displayID: 2)
-        suite.expect(service.hiddenInFullscreen && service.collapses == 1 && service.cancellations == 1
-                     && !service.heldDrag && !service.dragPlaceholder && service.notice == nil
+        suite.expect(service.hiddenInFullscreen && service.collapses == 1 && service.notice == nil
                      && !service.hoverEmphasized && hover.isCancelled && notice.isCancelled && service.departures == 1,
-                     "entering fullscreen clears hover emphasis, pending reveals, banners, departing notices, drags and capture controls")
-        suite.expect(BrightnessService.shared.syncs == brightnessSyncs + 1,
-                     "entering fullscreen hands the brightness keys back to the system")
+                     "entering fullscreen clears hover emphasis, pending reveals, banners and departing notices")
         service.updateFullscreenVisibility(displayID: 2)
-        suite.expect(service.collapses == 1 && BrightnessService.shared.syncs == brightnessSyncs + 1,
-                     "unchanged fullscreen state does not repeat dismissal or key routing")
+        suite.expect(service.collapses == 1,
+                     "unchanged fullscreen state does not repeat dismissal")
         service.updateFullscreenVisibility(displayID: 1)
-        suite.expect(!service.hiddenInFullscreen && !service.hoverEmphasized
-                     && BrightnessService.shared.syncs == brightnessSyncs + 2,
+        suite.expect(!service.hiddenInFullscreen && !service.hoverEmphasized,
                      "returning to a desktop restores eligibility without retaining the old hover emphasis")
         service.updateFullscreenVisibility(displayID: 2)
         UserDefaults.standard.enabled = false
@@ -161,16 +120,13 @@ enum NotchFullscreenTests {
         idle.fullscreenEnvironmentDidChange()
         suite.expect(idle.screenUpdates == 0 && idle.consumerSyncs == 0 && idle.refreshes == 0,
                      "with the option off, app and Space changes do no fullscreen work")
-        suite.expect(Defaults.registeredDefaults[DefaultsKey.notchHideInFullscreen] as? Bool == false
-                     && SettingsBackupSupport.exportKeys().contains(DefaultsKey.notchHideInFullscreen),
-                     "fullscreen hiding is opt-in and included in settings backup")
-        suite.expect(Defaults.registeredDefaults[DefaultsKey.notchHoverInFullscreen] as? Bool == false
-                     && SettingsBackupSupport.exportKeys().contains(DefaultsKey.notchHoverInFullscreen),
-                     "fullscreen hover is a separate opt-in included in settings backup")
+        suite.expect(Defaults.registeredDefaults[DefaultsKey.notchHideInFullscreen] as? Bool == false,
+                     "fullscreen hiding is opt-in")
+        suite.expect(Defaults.registeredDefaults[DefaultsKey.notchHoverInFullscreen] as? Bool == false,
+                     "fullscreen hover is a separate opt-in")
         appFullscreenChecks(topology, suite)
         fullscreenMotionChecks(topology, suite)
         appFullscreenWindowChecks(suite)
-        volumeLifecycleChecks(topology, suite)
     }
 
     private static func appFullscreenChecks(_ topology: Topology, _ suite: TestSuite) {
@@ -246,7 +202,7 @@ enum NotchFullscreenTests {
     /// Window lists recorded from GLFW full screen (Minecraft) and ordinary
     /// desktop windows on a 14-inch notched display.
     private static func appFullscreenWindowChecks(_ suite: TestSuite) {
-        typealias Real = VorssaintTests.NotchAppFullscreen
+        typealias Real = BrimTests.NotchAppFullscreen
         let built = CGRect(x: 0, y: 0, width: 1512, height: 982)
         let external = CGRect(x: 1512, y: 0, width: 1920, height: 1080)
         let displays: [CGDirectDisplayID: CGRect] = [1: built, 2: external]
@@ -305,7 +261,7 @@ enum NotchFullscreenTests {
     /// Measured with VLC in its own full screen on display A and an app
     /// clicked on display B. Lists run front to back, in CG coordinates.
     private static func multiDisplayChecks(_ suite: TestSuite) {
-        typealias Real = VorssaintTests.NotchAppFullscreen
+        typealias Real = BrimTests.NotchAppFullscreen
         let a = CGRect(x: 0, y: 0, width: 3440, height: 1440)
         let b = CGRect(x: 3440, y: 193, width: 1800, height: 1169)
         let displays: [CGDirectDisplayID: CGRect] = [1: a, 2: b]
@@ -367,32 +323,5 @@ enum NotchFullscreenTests {
                      "the Dock's full-display level 20 window alone never covers")
         suite.expect(read([video], front: 7, hidden: false, confirmed: [10]).displays == [1],
                      "the island's own focus does not uncover a confirmed full-screen window")
-    }
-
-    private static func volumeLifecycleChecks(_ topology: Topology, _ suite: TestSuite) {
-        // Run the production volume eligibility and fullscreen callbacks with
-        // an inert tap. No hardware keys, permissions or desktop Spaces change.
-        UserDefaults.standard.enabled = true
-        SpaceWindowBridge.value = topology
-        for preciseVolume in [false, true] {
-            UserDefaults.standard.preciseVolume = preciseVolume
-            let service = Service()
-            NotchService.shared = service
-            let volume = PreciseVolumeRollerService.shared
-            var displayID: CGDirectDisplayID = 2
-            service.screenUpdate = { [weak service] in service?.updateFullscreenVisibility(displayID: displayID) }
-            service.updateScreen()
-            volume.syncWithPreferences()
-            suite.expect(service.hiddenInFullscreen && volume.running == preciseVolume,
-                         "fullscreen startup keeps the tap only when the precise volume roller needs it")
-            displayID = 1
-            service.fullscreenEnvironmentDidChange()
-            suite.expect(!service.hiddenInFullscreen && service.acceptsSystemFeedback && volume.running,
-                         "returning to the desktop restores the volume tap without a preference change")
-            displayID = 2
-            service.fullscreenEnvironmentDidChange()
-            suite.expect(service.hiddenInFullscreen && volume.running == preciseVolume,
-                         "entering fullscreen releases the notch tap but preserves the precise volume roller")
-        }
     }
 }

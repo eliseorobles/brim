@@ -16,25 +16,17 @@ enum SettingsSearchCoverageTests {
     /// Where Settings search gets its words. `selfType` names the strings
     /// type whose own members a region lists without a receiver.
     private static let searchSources: [(path: String, declaration: String, selfType: String?)] = [
-        ("Sources/Vorssaint/UI/Settings/SettingsDirectory.swift", "    static func searchItems(", nil),
-        ("Sources/Vorssaint/UI/Settings/SettingsDirectory.swift", "    static func sections(", nil),
-        ("Sources/Vorssaint/UI/Settings/SettingsSearchSupport.swift",
-         "    static func keyboardBrightnessShortcutItem(", nil),
-        ("Sources/Vorssaint/UI/Settings/SettingsSearchSupport.swift",
-         "    static func screenCaptureFeatureKeywords(", nil),
+        ("Sources/Brim/UI/Settings/SettingsDirectory.swift", "    static func searchItems(", nil),
+        ("Sources/Brim/UI/Settings/SettingsDirectory.swift", "    static func sections(", nil),
         // Every feature's name is a search result of its own.
-        ("Sources/Vorssaint/UI/Settings/FeatureHubSettings.swift", "    func hubTitle(", nil),
-        ("Sources/Vorssaint/Core/NotchMascotStrings.swift", "    var searchKeywords:", "NotchMascotStrings"),
+        ("Sources/Brim/UI/Settings/FeatureHubSettings.swift", "    func hubTitle(", nil),
     ]
 
     /// Labels that name no setting, so a search for them has nowhere to go.
-    private static let exemptions: [String: String] = [
-        "Strings.permissionRequired": "a banner asking for a missing permission",
-        "FeatureHubStrings.neverUsedTitle": "a suggestion that shows only while some features stay unused",
-    ]
+    private static let exemptions: [String: String] = [:]
 
     static func run(_ suite: TestSuite) {
-        let resolver = Resolver(sourceRoot: "Sources/Vorssaint")
+        let resolver = Resolver(sourceRoot: "Sources/Brim")
         var indexed = Set<String>()
         for source in searchSources {
             let words = (try? String(contentsOfFile: source.path, encoding: .utf8)).flatMap {
@@ -63,7 +55,7 @@ enum SettingsSearchCoverageTests {
                 }
             }
         }
-        suite.expect(labelCount > 150, "the coverage scan finds the Settings labels (\(labelCount))")
+        suite.expect(labelCount > 80, "the coverage scan finds the Settings labels (\(labelCount))")
         for reference in exemptions.keys.sorted() {
             suite.expect(shown.contains(reference), "the search exemption \(reference) still names a label")
         }

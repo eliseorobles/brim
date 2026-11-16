@@ -31,7 +31,7 @@ enum ClipboardFeatureTests {
         }
         typealias NSScreen = Screen
         enum UserDefaults {
-            static let name = "com.vorssaint.tests.clipboard-panel"
+            static let name = "brim.tests.clipboard-panel"
             static let standard = Foundation.UserDefaults(suiteName: name)!
         }
         var quickLayout = ClipboardHistoryLayout.cards
@@ -89,7 +89,7 @@ enum ClipboardFeatureTests {
         var candidates: Set<String> = []
         var lookup: Set<String> = []
         var historyPanelWasKey = false
-        let ownBundleID: String? = "com.vorssaint.utils"
+        let ownBundleID: String? = "com.roblesconsulting.brim"
         static var front: String?
         static func frontmostBundleID() -> String? { front }
     }
@@ -101,10 +101,8 @@ enum ClipboardFeatureTests {
         final class PollToken { let isCancelled = false }
         struct PollResult {
             let changeCount: Int
-            let cleaned: URLCleaning.Result?
         }
         static let urlType = AppKit.NSPasteboard.PasteboardType("public.url")
-        static let rules = URLCleaning.Rules.none
     }
 
     private static func panelGeometryPersistence(_ suite: TestSuite) {
@@ -280,8 +278,8 @@ enum ClipboardFeatureTests {
                      "a copy naming an app that is not skipped is still recorded under that app")
         source.lookup = []
         source.candidates = ["com.apple.Safari"]
-        suite.expect(sourceCheck(declared: "com.vorssaint.utils").bundleID == nil,
-                     "text Vorssaint copies itself, such as recognized text, is not credited to the app in front")
+        suite.expect(sourceCheck(declared: "com.roblesconsulting.brim").bundleID == nil,
+                     "text Brim copies itself, such as recognized text, is not credited to the app in front")
         source.candidates = ["com.apple.Safari"]
         suite.expect(sourceCheck(declared: "com.apple.Notes").bundleID == "com.apple.Notes",
                      "an app that names itself on the pasteboard is believed over the app in front")
@@ -334,19 +332,8 @@ enum ClipboardFeatureTests {
         cleanerBoard.clearContents()
         cleanerBoard.setString("com.example.reader", forType: .source)
         cleanerBoard.setString("https://example.com/path?utm_source=news&id=42", forType: .string)
-        let signedRewrite = URLCleanerHost.pollPasteboard(sinceChangeCount: -1, token: URLCleanerHost.PollToken())
-        suite.expect(signedRewrite?.cleaned?.url == "https://example.com/path?id=42"
-                     && cleanerBoard.string(forType: .string) == "https://example.com/path?id=42"
-                     && cleanerBoard.string(forType: .source) == "com.example.reader",
-                     "the link cleaner's rewrite keeps the app the copy named as its source")
         cleanerBoard.clearContents()
         cleanerBoard.setString("https://example.com/path?utm_source=news&id=42", forType: .string)
-        let unsignedRewrite = URLCleanerHost.pollPasteboard(sinceChangeCount: -1, token: URLCleanerHost.PollToken())
-        suite.expect(unsignedRewrite?.cleaned != nil
-                     && cleanerBoard.string(forType: .string) == "https://example.com/path?id=42"
-                     && cleanerBoard.string(forType: .source) == nil,
-                     "a rewritten copy that named no app gains no mark, so the app that copied it is still credited")
-        URLCleanerMetadataTests.run(suite)
         cleanerBoard.releaseGlobally()
         func expectEqual(_ actual: String, _ expected: String, _ label: String,
                          file: StaticString = #filePath, line: UInt = #line) {
@@ -451,24 +438,6 @@ enum ClipboardFeatureTests {
 
         // MARK: Clipboard image text recognition
 
-        suite.expect(ClipboardImageRecognition.decodeMaxPixelSize(width: 6_016, height: 3_384) == 6_016,
-                     "a 6K screenshot is read at full size, as Screen OCR reads its capture")
-        let scrollingSide = ClipboardImageRecognition.decodeMaxPixelSize(width: 3_024, height: 20_000)
-        let scrollingPixels = Double(scrollingSide) * Double(scrollingSide) * 3_024 / 20_000
-        suite.expect(scrollingPixels <= Double(ClipboardImageRecognition.maxPixels),
-                     "a picture past the area bound is scaled down to it")
-        suite.expect(scrollingPixels > 0.99 * Double(ClipboardImageRecognition.maxPixels),
-                     "a picture past the area bound keeps nearly all of that area")
-        suite.expect(ClipboardImageRecognition.scaledSize(width: 6_016, height: 3_384) == nil,
-                     "a 6K capture in a screenshot preview is read whole")
-        let longCaptureHeight = ScreenshotSupport.scrollingCaptureMaximumPixels / 3_000
-        let longCapture = ClipboardImageRecognition.scaledSize(width: 3_000, height: longCaptureHeight)
-        let longCapturePixels = (longCapture?.width ?? 0) * (longCapture?.height ?? 0)
-        suite.expect(longCapture?.height == ClipboardImageRecognition.decodeMaxPixelSize(
-                        width: 3_000, height: longCaptureHeight)
-                     && longCapturePixels <= ClipboardImageRecognition.maxPixels
-                     && Double(longCapturePixels) > 0.99 * Double(ClipboardImageRecognition.maxPixels),
-                     "the largest scrolling capture in a preview is scaled to the area bound before recognition")
 
         // MARK: Clipboard history search tokens and highlight ranges
 
@@ -833,8 +802,8 @@ enum ClipboardFeatureTests {
         suite.expect(Defaults.registeredDefaults[DefaultsKey.clipboardHistoryLayout] as? String
                         == ClipboardHistoryLayout.list.rawValue,
                "the clipboard history opens as the list until the cards are chosen")
-        let layoutDefaults = UserDefaults(suiteName: "com.vorssaint.tests.clipboard-layout")!
-        layoutDefaults.removePersistentDomain(forName: "com.vorssaint.tests.clipboard-layout")
+        let layoutDefaults = UserDefaults(suiteName: "brim.tests.clipboard-layout")!
+        layoutDefaults.removePersistentDomain(forName: "brim.tests.clipboard-layout")
         suite.expect(ClipboardHistoryLayout.current(in: layoutDefaults) == .list,
                "an unset clipboard history layout reads as the list")
         layoutDefaults.set(ClipboardHistoryLayout.cards.rawValue, forKey: DefaultsKey.clipboardHistoryLayout)
@@ -843,7 +812,7 @@ enum ClipboardFeatureTests {
         layoutDefaults.set("grid", forKey: DefaultsKey.clipboardHistoryLayout)
         suite.expect(ClipboardHistoryLayout.current(in: layoutDefaults) == .list,
                "a layout this version does not know reads as the list")
-        layoutDefaults.removePersistentDomain(forName: "com.vorssaint.tests.clipboard-layout")
+        layoutDefaults.removePersistentDomain(forName: "brim.tests.clipboard-layout")
         suite.expect(ClipboardHistoryLayout.cards.sideArrowsMoveSelection
                         && !ClipboardHistoryLayout.list.sideArrowsMoveSelection,
                "side arrows walk the cards, while the list leaves them to the search field")
@@ -1049,7 +1018,6 @@ enum ClipboardFeatureTests {
         suite.expect(returnsMenuBarPreview.rangeOfCharacter(from: .newlines) == nil
                 && returnsMenuBarPreview.hasSuffix("four"),
                "carriage returns and Unicode line breaks fold into the single menu bar line instead of ending it")
-        L10n.shared.language = .enUS
         let imageMenuBarPreview = ClipboardHistoryEntry(text: "", kind: .image,
                                                         imageWidth: 400, imageHeight: 300)
             .menuBarText(maxCharacters: 20)
@@ -1108,31 +1076,6 @@ enum ClipboardFeatureTests {
                                                                 triggerIsEnabled: false),
                "a queued clear is invalidated when its setting changes before pasteboard access")
 
-        let featureTitles: [(AppLanguage, String, String, String, String)] = [
-            (.enUS, "Clipboard", "Window layout", "Utilities", "Alerts"),
-            (.ptBR, "Clipboard", "Layout de janelas", "Utilitários", "Alertas"),
-            (.tr, "Pano", "Pencere yerleşimi", "Araçlar", "Uyarılar"),
-            (.es, "Portapapeles", "Diseño de ventanas", "Utilidades", "Alertas"),
-            (.de, "Zwischenablage", "Fensterlayout", "Dienstprogramme", "Warnungen"),
-            (.fr, "Presse-papiers", "Disposition des fenêtres", "Utilitaires", "Alertes"),
-            (.it, "Appunti", "Layout finestre", "Utilità", "Avvisi"),
-            (.ja, "クリップボード", "ウインドウ配置", "ユーティリティ", "アラート"),
-            (.ko, "클립보드", "윈도우 정렬", "유틸리티", "알림"),
-            (.ru, "Буфер обмена", "Раскладка окон", "Утилиты", "Оповещения"),
-            (.zhHans, "剪贴板", "窗口布局", "实用工具", "提醒"),
-            (.zhTW, "剪貼簿", "視窗排列", "工具程式", "提醒"),
-            (.zhHK, "剪貼簿", "視窗排列", "工具", "提示"),
-        ]
-        for (language, clipboardTitle, windowTitle, utilitiesTitle, alertsTitle) in featureTitles {
-            suite.expect(FeatureStrings.clipboard(language).title == clipboardTitle,
-                   "\(language.rawValue) clipboard title is localized")
-            suite.expect(FeatureStrings.windowLayout(language).title == windowTitle,
-                   "\(language.rawValue) window layout title is localized")
-            suite.expect(FeatureStrings.settingsCategories(language).utilities == utilitiesTitle,
-                   "\(language.rawValue) settings category title is localized")
-            suite.expect(FeatureStrings.monitorAlerts(language).section == alertsTitle,
-                   "\(language.rawValue) monitor alert section is localized")
-        }
         for language in AppLanguage.allCases {
             let clipboardStrings = FeatureStrings.clipboard(language)
             expectFormat(clipboardStrings.pasteSelectedFormat, ["d"],
@@ -1159,35 +1102,6 @@ enum ClipboardFeatureTests {
                          && (language == .enUS || clipboardStrings.showSourceAppIconsInList
                              != FeatureStrings.clipboard(.enUS).showSourceAppIconsInList),
                          "\(language.rawValue) source app icons setting is localized")
-            let layoutStrings = FeatureStrings.windowLayout(language)
-            suite.expect(!layoutStrings.sixths.isEmpty
-                   && !layoutStrings.topLeftSixth.isEmpty
-                   && !layoutStrings.topCenterSixth.isEmpty
-                   && !layoutStrings.topRightSixth.isEmpty
-                   && !layoutStrings.bottomLeftSixth.isEmpty
-                   && !layoutStrings.bottomCenterSixth.isEmpty
-                   && !layoutStrings.bottomRightSixth.isEmpty,
-                   "\(language.rawValue) window sixth layout labels are localized")
-            suite.expect(!layoutStrings.gestureSection.isEmpty
-                   && !layoutStrings.gestureEnable.isEmpty
-                   && !layoutStrings.gestureCaption.isEmpty
-                   && !layoutStrings.gestureModifiers.isEmpty
-                   && !layoutStrings.gestureMove.isEmpty
-                   && !layoutStrings.gestureResize.isEmpty
-                   && !layoutStrings.gestureResizeHint.isEmpty
-                   && !layoutStrings.gestureRaiseWindow.isEmpty,
-                   "\(language.rawValue) window gesture controls are localized")
-            suite.expect(!layoutStrings.edgeSnapEnable.isEmpty
-                   && !layoutStrings.edgeSnapCaption.isEmpty
-                   && !layoutStrings.edgeSnapSystemConflict.isEmpty
-                   && !layoutStrings.edgeSnapOpenSystemSettings.isEmpty
-                   && !layoutStrings.edgeSnapWaitingForSystem.isEmpty
-                   && !layoutStrings.edgeSnapEnable.contains("—")
-                   && !layoutStrings.edgeSnapCaption.contains("—")
-                   && !layoutStrings.edgeSnapSystemConflict.contains("—")
-                   && !layoutStrings.edgeSnapOpenSystemSettings.contains("—")
-                   && !layoutStrings.edgeSnapWaitingForSystem.contains("—"),
-                   "\(language.rawValue) window edge snap controls are localized")
             let alertStrings = FeatureStrings.monitorAlerts(language)
             suite.expect(alertStrings.caption.contains("12"),
                    "\(language.rawValue) monitor alert caption explains the sustained alert window")
@@ -1201,8 +1115,6 @@ enum ClipboardFeatureTests {
         }
         suite.expect(FeatureStrings.monitorAlerts(.enUS).cooldown == "Repeat the same alert after",
                "English monitor repeat control is explicit")
-        suite.expect(FeatureStrings.monitorAlerts(.ptBR).cooldown == "Repetir o mesmo alerta depois de",
-               "Portuguese monitor repeat control is explicit")
 
         // MARK: Settings search navigation
 
@@ -1729,10 +1641,9 @@ enum ClipboardFeatureTests {
         }
 
         ClipboardHistoryWriteTests.run(suite)
-        ClipboardHistoryImageEditorTests.run(suite)
         ClipboardHistoryAccessTests.run(suite)
 
-        let pasteboardAccess = GeneralPasteboardAccess(label: "Vorssaint.Tests.PasteboardAccess")
+        let pasteboardAccess = GeneralPasteboardAccess(label: "Brim.Tests.PasteboardAccess")
         let pasteboardGroup = DispatchGroup()
         let pasteboardStateLock = NSLock()
         var activePasteboardOperations = 0
@@ -1790,14 +1701,14 @@ enum ClipboardFeatureTests {
         suite.expect(laneAnswer == 887, "the queued work runs once the lane comes free")
         suite.expect(laneAnsweredOnMain, "the pasteboard lane answers on the main queue")
         let pastePlainSource = (try? String(
-            contentsOfFile: "Sources/Vorssaint/Services/QuickTools/PastePlainService.swift",
+            contentsOfFile: "Sources/Brim/Services/QuickTools/PastePlainService.swift",
             encoding: .utf8)) ?? ""
         suite.expect(pastePlainSource.contains("GeneralPasteboardAccess.shared.async"),
                "paste as plain text reads the clipboard on the lane, not on the main thread")
         // Ordering out keeps a sheet attached, so a Clear unpinned question
         // left open would come back with its old count on the next opening.
         let historySource = (try? String(
-            contentsOfFile: "Sources/Vorssaint/Services/Clipboard/ClipboardHistoryService.swift",
+            contentsOfFile: "Sources/Brim/Services/Clipboard/ClipboardHistoryService.swift",
             encoding: .utf8)) ?? ""
         let hideBody = historySource.components(separatedBy: "    func hideHistoryWindow() {").dropFirst().first?
             .components(separatedBy: "\n    }\n").first ?? ""
@@ -1810,7 +1721,7 @@ enum ClipboardFeatureTests {
                         < (hideBody.range(of: "orderOut")?.lowerBound ?? hideBody.startIndex),
                "the history window reads a copy made in it as its own before it leaves the screen")
         let panelClipboardSource = (try? String(
-            contentsOfFile: "Sources/Vorssaint/UI/MenuPanel/PanelClipboardView.swift",
+            contentsOfFile: "Sources/Brim/UI/MenuPanel/PanelClipboardView.swift",
             encoding: .utf8)) ?? ""
         suite.expect(panelClipboardSource.contains("if inNotch { confirmClearAboveIsland(ids) } else { clearingIDs = ids }")
                      && panelClipboardSource.contains("NSAlert.confirmAboveIsland("),
@@ -2219,5 +2130,45 @@ enum ClipboardPreviewContract {
                      "a history change folds the new text and drops the old fold")
         suite.expect(service.searchCache.foldCount == foldsBeforeSearch + entries.count + 1,
                      "only the new entry refolds after a history change")
+    }
+}
+
+extension ClipboardFeatureTests {
+    /// The clipboard list's own shortcuts and its search folding.
+    static func listShortcutAndFoldingChecks(_ suite: TestSuite) {
+        suite.expect(ClipboardHistoryBatch.listOwnsCopyShortcut(batchCount: 2)
+                   && !ClipboardHistoryBatch.listOwnsCopyShortcut(batchCount: 0),
+               "the list only claims command-C over an explicit selection")
+        suite.expect(ClipboardHistoryBatch.listOwnsSelectAllShortcut(batchCount: 0, queryIsEmpty: true)
+                   && !ClipboardHistoryBatch.listOwnsSelectAllShortcut(batchCount: 0, queryIsEmpty: false)
+                   && ClipboardHistoryBatch.listOwnsSelectAllShortcut(batchCount: 1, queryIsEmpty: false),
+               "the list claims command-A over a selection or an empty search field")
+        suite.expect(ClipboardHistoryBatch.listOwnsDeleteShortcut(batchCount: 2)
+                   && !ClipboardHistoryBatch.listOwnsDeleteShortcut(batchCount: 0),
+               "the list only claims command-delete over an explicit selection")
+        // Case folding that inherits the Mac's locale answers differently for
+        // a Turkish user: there the dotted I folds to a dotless one, and a
+        // search for "istanbul" stops finding "ISTANBUL". Every search
+        // normalizer therefore folds with no locale at all.
+        let dottedI = "ISTANBUL"
+        let foldOptions: String.CompareOptions = [.caseInsensitive, .diacriticInsensitive, .widthInsensitive]
+        suite.expect(dottedI.folding(options: foldOptions, locale: Locale(identifier: "tr_TR"))
+                != dottedI.folding(options: foldOptions, locale: nil),
+               "the dotted I is exactly where locale-aware folding diverges")
+        for path in ["Sources/Brim/Services/Clipboard/ClipboardHistorySupport.swift",
+                     "Sources/Brim/UI/Settings/SettingsSearchSupport.swift",
+                     "Sources/Brim/Services/Notch/NotchSupport.swift"] {
+            let source = (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
+            suite.expect(!source.isEmpty, "\(path) reads back for its folding check")
+            let code = source.components(separatedBy: "\n")
+                .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+                .joined(separator: "\n")
+            suite.expect(!code.contains("locale: .current"),
+                   "search folding in \(path) does not follow the Mac's locale")
+        }
+        suite.expect(ClipboardHistorySearch.matches("ISTANBUL kahvesi", query: "istanbul"),
+               "clipboard search folds case whatever the Mac's locale is")
+        suite.expect(ClipboardHistorySearch.matches("café da manhã", query: "cafe"),
+               "clipboard search folds accents so a plain query still finds them")
     }
 }

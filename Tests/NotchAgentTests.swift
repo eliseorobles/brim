@@ -34,13 +34,10 @@ enum NotchAgentTests {
         AgentUsageArchiveTests.run(suite)
         AgentUsageArchiveSettleTests.run(suite)
         AgentUsageArchiveSaveTests.run(suite)
-        claudeApp(suite)
         AgentCodexResetTests.run(suite)
         AgentClaudeServerTests.run(suite)
-        ClaudeAccountProfileTests.run(suite)
         CodexAccountLimitsTests.run(suite)
         preferences(suite)
-        limitUse(suite)
         agentDefaults(suite)
         formatting(suite)
         AgentUsageEventDeliveryTests.run(suite)
@@ -224,11 +221,6 @@ enum NotchAgentTests {
         ]
         suite.expect(refused.allSatisfy { AgentPriceList.decode($0) == nil },
                      "a list that breaks a rule is refused whole: schema, day, prices, names, repeats and size")
-        let early = AgentPriceList.decode(priceJSON(updated: "2026-09-22"))
-        let late = AgentPriceList.decode(priceJSON(updated: "2026-10-01"))
-        suite.expect(AgentPriceList.newer(early, late) == late && AgentPriceList.newer(late, early) == late
-                        && AgentPriceList.newer(nil, early) == early && AgentPriceList.newer(early, nil) == early,
-                     "the newer of the shipped and downloaded lists wins")
         suite.expect(!AgentPricing.install(shipped), "installing the list in use changes nothing")
 
         // A newer list prices the history again.
@@ -738,7 +730,7 @@ enum NotchAgentTests {
                      "a router's prefixes are dropped and a dotted version reads like a dashed one")
 
         // 7. SQLite reader with temporary database
-        let tmpDir = FileManager.default.temporaryDirectory.appending(path: "vorss-opencode-\(UUID().uuidString)")
+        let tmpDir = FileManager.default.temporaryDirectory.appending(path: "brim-opencode-\(UUID().uuidString)")
         try? FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tmpDir) }
         let dbPath = tmpDir.appending(path: "opencode.db").path
@@ -882,7 +874,7 @@ enum NotchAgentTests {
                      "final cost adjustment with identical tokens preserves reported cost")
 
         // 10. WAL modification discovery
-        let walDir = FileManager.default.temporaryDirectory.appending(path: "vorss-wal-\(UUID().uuidString)")
+        let walDir = FileManager.default.temporaryDirectory.appending(path: "brim-wal-\(UUID().uuidString)")
         try? FileManager.default.createDirectory(at: walDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: walDir) }
         let root = AgentLogRoot.canonical(walDir)
@@ -1019,7 +1011,7 @@ enum NotchAgentTests {
     }
 
     private static func openCodeMillisecondDedup(_ suite: TestSuite) {
-        let dir = FileManager.default.temporaryDirectory.appending(path: "vorss-boundary-\(UUID().uuidString)")
+        let dir = FileManager.default.temporaryDirectory.appending(path: "brim-boundary-\(UUID().uuidString)")
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
         let dbPath = dir.appending(path: "opencode.db").path
@@ -1278,7 +1270,7 @@ enum NotchAgentTests {
     }
 
     private static func openCodeSubagents(_ suite: TestSuite, now: Date) {
-        let dir = FileManager.default.temporaryDirectory.appending(path: "vorss-subagent-\(UUID().uuidString)")
+        let dir = FileManager.default.temporaryDirectory.appending(path: "brim-subagent-\(UUID().uuidString)")
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
         let dbPath = dir.appending(path: "opencode.db").path
@@ -1364,7 +1356,7 @@ enum NotchAgentTests {
     }
 
     private static func openCodeDatabaseReplacement(_ suite: TestSuite, now: Date) {
-        let dir = FileManager.default.temporaryDirectory.appending(path: "vorss-replace-\(UUID().uuidString)")
+        let dir = FileManager.default.temporaryDirectory.appending(path: "brim-replace-\(UUID().uuidString)")
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
         let activePath = dir.appending(path: "opencode.db").path
@@ -1432,7 +1424,7 @@ enum NotchAgentTests {
     /// A database laid out like OpenCode's, in a folder of its own. OpenCode
     /// 1.15 and later also keep a session_message table of their own.
     static func openCodeDatabase(_ sql: String) -> (folder: URL, path: String)? {
-        let folder = FileManager.default.temporaryDirectory.appending(path: "vorss-opencode-\(UUID().uuidString)")
+        let folder = FileManager.default.temporaryDirectory.appending(path: "brim-opencode-\(UUID().uuidString)")
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let path = folder.appending(path: "opencode.db").path
         guard openCodeExec(path, """
@@ -1501,7 +1493,7 @@ enum NotchAgentTests {
         let model = #""model":{"id":"ox-alpha","providerID":"stealth","variant":"default"}"#
         for upgraded in [false, true] {
             let layout = upgraded ? "an upgraded database" : "a fresh install"
-            let folder = FileManager.default.temporaryDirectory.appending(path: "vorss-opencode2-\(UUID().uuidString)")
+            let folder = FileManager.default.temporaryDirectory.appending(path: "brim-opencode2-\(UUID().uuidString)")
             try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             defer { try? FileManager.default.removeItem(at: folder) }
             let path = folder.appending(path: "opencode.db").path
@@ -1621,7 +1613,7 @@ enum NotchAgentTests {
     /// OpenCode 2 copies an upgraded database's history session by session,
     /// so an old session picked up again sits before sessions long ended.
     private static func openCodeTwoHistory(_ suite: TestSuite) {
-        let folder = FileManager.default.temporaryDirectory.appending(path: "vorss-opencode2-\(UUID().uuidString)")
+        let folder = FileManager.default.temporaryDirectory.appending(path: "brim-opencode2-\(UUID().uuidString)")
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: folder) }
         let path = folder.appending(path: "opencode.db").path
@@ -1658,7 +1650,7 @@ enum NotchAgentTests {
     private static func openCodeTwoSlowStep(_ suite: TestSuite, now: Date) {
         func at(_ seconds: TimeInterval) -> Date { Date(timeIntervalSince1970: seconds) }
         let model = #""model":{"id":"ox-alpha","providerID":"stealth","variant":"default"}"#
-        let folder = FileManager.default.temporaryDirectory.appending(path: "vorss-opencode2-\(UUID().uuidString)")
+        let folder = FileManager.default.temporaryDirectory.appending(path: "brim-opencode2-\(UUID().uuidString)")
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: folder) }
         let path = folder.appending(path: "opencode.db").path
@@ -1713,7 +1705,7 @@ enum NotchAgentTests {
     private static func openCodeTwoCutStep(_ suite: TestSuite, now: Date) {
         func at(_ seconds: TimeInterval) -> Date { Date(timeIntervalSince1970: seconds) }
         let model = #""model":{"id":"ox-alpha","providerID":"stealth","variant":"default"}"#
-        let folder = FileManager.default.temporaryDirectory.appending(path: "vorss-opencode2-\(UUID().uuidString)")
+        let folder = FileManager.default.temporaryDirectory.appending(path: "brim-opencode2-\(UUID().uuidString)")
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: folder) }
         let path = folder.appending(path: "opencode.db").path
@@ -1857,7 +1849,7 @@ enum NotchAgentTests {
     }
 
     private static func openCodeDiscovery(_ suite: TestSuite) {
-        let folder = FileManager.default.temporaryDirectory.appending(path: "vorss-discover-\(UUID().uuidString)")
+        let folder = FileManager.default.temporaryDirectory.appending(path: "brim-discover-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: folder) }
         let root = AgentLogRoot(provider: .opencode, url: folder)
         let nested = folder.appending(path: "snapshot/project/opencode.db")
@@ -2579,7 +2571,7 @@ enum NotchAgentTests {
                      "the wings take the width the reading needs, with the camera between them")
         suite.expect(geometry.compactAgentGeometry(wing: 12).compactActivityWingWidth == 44
                         && geometry.compactAgentGeometry(wing: 300).compactActivityWingWidth == 80,
-                     "a wing is never narrower than the music strip's nor wider than the menus allow")
+                     "a wing is never narrower than the island's resting wing nor wider than the menus allow")
         var crowded = geometry
         crowded.compactSideRoom = 30
         suite.expect(crowded.compactAgentGeometry(wing: 57).compactActivityWingWidth == 0
@@ -2590,7 +2582,7 @@ enum NotchAgentTests {
     /// A Claude session quit or killed mid-turn ends the turn by its process
     /// record, not after the quiet wait.
     private static func sessionProcesses(_ suite: TestSuite, start: Date) {
-        let folder = FileManager.default.temporaryDirectory.appending(path: "vorss-agent-sessions-\(UUID().uuidString)")
+        let folder = FileManager.default.temporaryDirectory.appending(path: "brim-agent-sessions-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: folder) }
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         func write(_ name: String, _ text: String) {
@@ -2657,7 +2649,7 @@ enum NotchAgentTests {
     }
 
     private static func reading(_ suite: TestSuite) {
-        let folder = FileManager.default.temporaryDirectory.appending(path: "vorss-agent-logs-\(UUID().uuidString)")
+        let folder = FileManager.default.temporaryDirectory.appending(path: "brim-agent-logs-\(UUID().uuidString)")
         let file = folder.appending(path: "session.jsonl")
         defer { try? FileManager.default.removeItem(at: folder) }
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -2691,7 +2683,7 @@ enum NotchAgentTests {
         suite.expect(found.map(\.path) == [root.appending(path: "session.jsonl").path] && found.first?.provider == .codex,
                      "log files are found under a root")
         let copilotRoot = FileManager.default.temporaryDirectory
-            .appending(path: "vorss-copilot-logs-\(UUID().uuidString)")
+            .appending(path: "brim-copilot-logs-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: copilotRoot) }
         let copilotSession = copilotRoot.appending(path: "session-id")
         let copilotWorkspace = copilotSession.appending(path: "workspace/nested")
@@ -2826,311 +2818,26 @@ enum NotchAgentTests {
                      "an interrupted log resumes its partial line without losing or replaying completed lines")
     }
 
-    private static func history(_ samples: [(String, String?, [String: Any])], version: Int = 2) -> Data {
-        let entries: [[String: Any]] = samples.map { time, organization, used in
-            var entry: [String: Any] = ["t": (AgentTimestamp.parse(time)?.timeIntervalSince1970 ?? 0) * 1_000]
-            entry["org"] = organization ?? NSNull()
-            if version == 1 { entry.merge(used) { $1 } } else { entry["u"] = used }
-            return entry
-        }
-        return (try? JSONSerialization.data(withJSONObject: ["version": version, "samples": entries])) ?? Data()
-    }
-
-    private static func claudeApp(_ suite: TestSuite) {
-        let at = { (time: String) in AgentTimestamp.parse(time)! }
-        let file = history([("2026-09-23T14:20:00Z", "o", ["fh": 6, "sd": 42, "cw": 3]),
-                            ("2026-09-23T13:50:00Z", "o", ["fh": 0, "sd": 40]),
-                            ("2026-09-23T14:05:00Z", "o", ["fh": 3, "sd": 41, "so": true])])
-        let samples = AgentClaudeAppUsage.samples(from: file) ?? []
-        suite.expect(samples.map(\.date) == [at("2026-09-23T13:50:00Z"), at("2026-09-23T14:05:00Z"), at("2026-09-23T14:20:00Z")]
-                        && samples.last?.used == ["fh": 6, "sd": 42] && samples[1].used == ["fh": 3, "sd": 41],
-                     "readings come oldest first, with the known windows and nothing that is not a number")
-        let now = at("2026-09-23T14:30:00Z")
-        let reading = AgentClaudeAppUsage.limits(from: samples, now: now)
-        suite.expect(reading?.source == .claudeApp && reading?.observedAt == at("2026-09-23T14:20:00Z")
-                        && reading?.windows.map(\.kind) == [.session, .weekly]
-                        && reading?.windows.map(\.usedPercent) == [6, 42] && reading?.windows.last?.resetsAt == nil,
-                     "the latest reading gives the session and the week, and a week with no renewal seen has no date")
-        suite.expect(reading?.windows.first?.resetsAt == at("2026-09-23T19:05:00Z"),
-                     "a session renews five hours after its first reading above zero")
-        suite.expect(AgentClaudeAppUsage.limits(from: samples, now: now, sessionStart: at("2026-09-23T13:55:00Z"))?
-                        .windows.first?.resetsAt == at("2026-09-23T18:55:00Z")
-                        && AgentClaudeAppUsage.limits(from: samples, now: now, sessionStart: at("2026-09-23T13:40:00Z"))?
-                        .windows.first?.resetsAt == at("2026-09-23T19:05:00Z"),
-                     "Claude Code's first request places the session only inside the gap the readings leave")
-        // Readings hours apart leave the start anywhere between them, and the
-        // first one above zero is only the latest it can have been.
-        let slept = AgentClaudeAppUsage.samples(from: history([
-            ("2026-10-12T12:26:00Z", "o", ["fh": 2, "sd": 9]), ("2026-10-12T19:03:00Z", "o", ["fh": 4, "sd": 11])])) ?? []
-        let sleptReset = AgentClaudeAppUsage.limits(from: slept, now: at("2026-10-12T19:04:00Z"))?.windows.first?.estimatedResetsAt
-        suite.expect(sleptReset == at("2026-10-12T21:33:00Z"),
-                     "a session first read after sleep estimates the midpoint instead of the latest possible renewal")
-        let overnight = AgentClaudeAppUsage.samples(from: history([
-            ("2026-10-11T23:00:00Z", "o", ["fh": 0, "sd": 40]), ("2026-10-12T11:59:00Z", "o", ["fh": 29, "sd": 41])])) ?? []
-        let overnightReset = AgentClaudeAppUsage.limits(from: overnight, now: at("2026-10-12T12:32:00Z"))?.windows.first?.estimatedResetsAt
-        suite.expect(overnightReset == at("2026-10-12T14:29:00Z"),
-                     "an overnight gap keeps the renewal between the reading and five hours after it")
-        let lone = AgentClaudeAppUsage.samples(from: history([("2026-10-12T19:03:00Z", "o", ["fh": 4, "sd": 11])])) ?? []
-        suite.expect(AgentClaudeAppUsage.limits(from: lone, now: at("2026-10-12T19:04:00Z"))?.windows.first?.resetsAt
-                        == at("2026-10-13T00:03:00Z"),
-                     "a file that starts with the session has nothing before it to bracket the start")
-        let gap = AgentClaudeAppUsage.samples(from: history([
-            ("2026-10-12T00:00:00Z", "o", ["fh": 0]), ("2026-10-12T08:00:00Z", "o", ["fh": 90]),
-            ("2026-10-12T08:10:00Z", "o", ["fh": 95]), ("2026-10-12T10:40:00Z", "o", ["fh": 100])])) ?? []
-        let beforeEstimate = AgentClaudeAppUsage.limits(from: Array(gap.prefix(3)), now: at("2026-10-12T08:10:00Z"))
-        let afterEstimate = AgentClaudeAppUsage.limits(from: gap, now: at("2026-10-12T10:40:00Z"))
-        if let window = afterEstimate?.windows.first, let warned = beforeEstimate?.windows.first {
-            let now = at("2026-10-12T10:40:00Z")
-            suite.expect(window.usedPercent == 100 && AgentLimitSupport.current(window, at: now).usedPercent == 100,
-                         "fresh increasing usage survives the estimated renewal in the reader and the display")
-            suite.expect(window.estimatedResetsAt == at("2026-10-12T10:30:00Z")
-                            && AgentLimitSupport.displayedReset(window, now: now) == nil
-                            && AgentLimitSupport.pace(for: window, now: now) == nil,
-                         "an elapsed estimate hides the countdown and pace without clearing usage")
-            suite.expect(warned.resetsAt == at("2026-10-12T13:00:00Z") && window.resetsAt == warned.resetsAt,
-                         "a warning keeps the latest possible renewal, so the midpoint cannot send a reset alert")
-            suite.expect(AgentLimitSupport.crossings(previous: beforeEstimate, current: afterEstimate!, threshold: 90).isEmpty,
-                         "continuing usage after the midpoint does not become another threshold crossing")
-            suite.expect(AgentLimitSupport.displayedReset(warned, now: at("2026-10-12T09:00:00Z"))
-                            == at("2026-10-12T10:30:00Z"),
-                         "the card still shows the useful midpoint while it is in the future")
-        } else {
-            suite.expect(false, "fresh observed session usage must remain present after its estimated renewal")
-        }
-        suite.expect(AgentClaudeAppUsage.limits(from: Array(gap.prefix(3)), now: at("2026-10-12T10:40:00Z"))?
-                        .windows.first?.usedPercent == 95,
-                     "the midpoint alone cannot discard a reading between Claude app checks")
-        let placedGap = AgentClaudeAppUsage.limits(from: gap, now: at("2026-10-12T10:40:00Z"),
-                                                   sessionStart: at("2026-10-12T07:55:00Z"))?.windows.first
-        suite.expect(placedGap?.resetsAt == at("2026-10-12T12:55:00Z") && placedGap?.estimatedResetsAt == nil,
-                     "a first request within the gap replaces the presentation estimate with its known start")
-        suite.expect(AgentClaudeAppUsage.limits(from: gap, now: at("2026-10-12T13:00:00Z")) == nil,
-                     "an estimated window still expires at its latest possible renewal")
-        let dropped = gap + [AgentClaudeAppUsage.Sample(date: at("2026-10-12T10:50:00Z"), organization: "o", used: ["fh": 0]),
-                             AgentClaudeAppUsage.Sample(date: at("2026-10-12T11:00:00Z"), organization: "o", used: ["fh": 2])]
-        let newSession = AgentClaudeAppUsage.limits(from: dropped, now: at("2026-10-12T11:00:00Z"))?.windows.first
-        suite.expect(newSession?.usedPercent == 2 && newSession?.estimatedResetsAt == nil
-                        && newSession?.resetsAt == at("2026-10-12T16:00:00Z"),
-                     "an observed renewal starts a new window without retaining the old estimate")
-        let requests = [record(.claude, at("2026-09-23T13:55:00Z"), cost: 1), record(.claude, at("2026-09-23T18:58:00Z"), cost: 1)]
-        let placed = AgentClaudeAppUsage.sessionStart(requests, samples: samples)
-        let ended = at("2026-09-23T19:00:00Z")
-        suite.expect(placed == at("2026-09-23T13:55:00Z")
-                        && AgentClaudeAppUsage.limits(from: samples, now: at("2026-09-23T18:50:00Z"), sessionStart: placed)?
-                        .windows.first?.resetsAt == at("2026-09-23T18:55:00Z")
-                        && AgentClaudeAppUsage.limits(from: samples, now: ended, sessionStart: placed)?.windows.map(\.kind) == [.weekly],
-                     "the session the newest reading saw keeps its renewal after it ends, even once a new one began")
-        let renewed = AgentClaudeAppUsage.samples(from: history([
-            ("2026-09-16T19:50:00Z", "o", ["fh": 10, "sd": 95]), ("2026-09-16T20:05:00Z", "o", ["fh": 0, "sd": 1]),
-            ("2026-09-23T14:00:00Z", "x", ["fh": 90, "sd": 2]), ("2026-09-23T14:10:00Z", "x", ["fh": 0, "sd": 99]),
-            ("2026-09-23T14:20:00Z", "o", ["fh": 6, "sd": 42])])) ?? []
-        suite.expect(AgentClaudeAppUsage.limits(from: renewed, now: now)?.windows.last?.resetsAt == at("2026-09-23T20:00:00Z"),
-                     "a week renews seven days after the last drop, on the hour, counting only the same account")
-        let weeks: [(String, String?, [String: Any])] = [
-            ("2026-09-19T11:56:00Z", "o", ["sd": 100]), ("2026-09-19T12:01:00Z", "o", ["sd": 0]),
-            ("2026-09-26T11:56:00Z", "o", ["sd": 100]), ("2026-09-26T12:01:00Z", "o", ["sd": 0]),
-            ("2026-10-01T08:48:00Z", "o", ["sd": 100]), ("2026-10-01T08:53:00Z", "o", ["sd": 0]),
-            ("2026-10-01T10:00:00Z", "o", ["fh": 5, "sd": 4])]
-        let banked = AgentClaudeAppUsage.samples(from: history(weeks)) ?? []
-        suite.expect(AgentClaudeAppUsage.limits(from: banked, now: at("2026-10-01T10:05:00Z"))?.windows.last?.resetsAt
-                        == at("2026-10-03T12:00:00Z"),
-                     "a reset used mid-week empties the week without moving its renewal")
-        // Drops whose spans only touch at a reading do not share a moment.
-        let touching = AgentClaudeAppUsage.samples(from: history([
-            ("2026-09-19T11:55:00Z", "o", ["sd": 100]), ("2026-09-19T12:00:00Z", "o", ["sd": 0]),
-            ("2026-09-26T12:00:00Z", "o", ["sd": 100]), ("2026-09-26T12:05:00Z", "o", ["sd": 0]),
-            ("2026-10-01T08:48:00Z", "o", ["sd": 100]), ("2026-10-01T08:53:00Z", "o", ["sd": 0]),
-            ("2026-10-01T10:00:00Z", "o", ["fh": 5, "sd": 4])])) ?? []
-        suite.expect(AgentClaudeAppUsage.limits(from: touching, now: at("2026-10-01T10:05:00Z"))?.windows.last?.resetsAt
-                        == at("2026-10-08T08:53:00Z"),
-                     "drops whose spans only touch at a reading confirm no schedule, so the last drop stands")
-        let wideConfirmed = AgentClaudeAppUsage.samples(from: history([
-            ("2026-09-19T11:56:00Z", "o", ["sd": 100]), ("2026-09-19T12:01:00Z", "o", ["sd": 0]),
-            ("2026-09-26T01:00:00Z", "o", ["sd": 100]), ("2026-09-26T13:00:00Z", "o", ["sd": 0]),
-            ("2026-10-01T08:48:00Z", "o", ["sd": 100]), ("2026-10-01T08:53:00Z", "o", ["sd": 0]),
-            ("2026-10-01T10:00:00Z", "o", ["fh": 5, "sd": 4])])) ?? []
-        suite.expect(AgentClaudeAppUsage.limits(from: wideConfirmed, now: at("2026-10-01T10:05:00Z"))?.windows.last?.resetsAt
-                        == at("2026-10-03T12:00:00Z"),
-                     "a confirmed drop renews inside what its confirming drops allow, not at the start of its own span")
-        let afterDays = AgentClaudeAppUsage.samples(from: history([
-            ("2026-09-19T11:56:00Z", "o", ["sd": 100]), ("2026-09-19T12:01:00Z", "o", ["sd": 0]),
-            ("2026-09-26T11:56:00Z", "o", ["sd": 100]), ("2026-09-26T12:01:00Z", "o", ["sd": 0]),
-            ("2026-10-03T12:00:00Z", "o", ["sd": 100]), ("2026-10-04T13:00:00Z", "o", ["sd": 0]),
-            ("2026-10-04T14:00:00Z", "o", ["fh": 5, "sd": 4])])) ?? []
-        suite.expect(AgentClaudeAppUsage.limits(from: afterDays, now: at("2026-10-04T14:05:00Z"))?.windows.last?.resetsAt
-                        == at("2026-10-10T12:00:00Z"),
-                     "a drop read only after days without readings does not move a schedule two drops already confirm")
-        let movedWeeks: [(String, String?, [String: Any])] = [
-            ("2026-09-19T11:56:00Z", "o", ["sd": 100]), ("2026-09-19T12:01:00Z", "o", ["sd": 0]),
-            ("2026-09-26T11:56:00Z", "o", ["sd": 100]), ("2026-09-26T12:01:00Z", "o", ["sd": 0]),
-            ("2026-09-30T10:35:00Z", "o", ["sd": 60]), ("2026-09-30T10:40:00Z", "o", ["sd": 5]),
-            ("2026-10-03T11:55:00Z", "o", ["sd": 40]), ("2026-10-03T12:05:00Z", "o", ["fh": 5, "sd": 41])]
-        let moved = AgentClaudeAppUsage.samples(from: history(movedWeeks)) ?? []
-        suite.expect(AgentClaudeAppUsage.limits(from: moved, now: at("2026-10-03T12:10:00Z"))?.windows.last?.resetsAt
-                        == at("2026-10-07T10:40:00Z"),
-                     "a schedule whose renewal went by in plain sight without a drop has moved, so the last drop stands")
-        // The Mac was off for the first renewal the old schedule places; the next one shows the move.
-        let away = AgentClaudeAppUsage.samples(from: history(Array(movedWeeks.prefix(6)) + [
-            ("2026-10-02T20:00:00Z", "o", ["sd": 30]),
-            ("2026-10-10T11:55:00Z", "o", ["sd": 50]), ("2026-10-10T12:05:00Z", "o", ["fh": 5, "sd": 51])])) ?? []
-        suite.expect(AgentClaudeAppUsage.limits(from: away, now: at("2026-10-10T12:10:00Z"))?.windows.last?.resetsAt
-                        == at("2026-10-14T10:40:00Z"),
-                     "a renewal seen going by without a drop moves the schedule even after an earlier one went unseen")
-        // A reading without the week between the two hides the drop from the history, not the renewal.
-        let gapped = AgentClaudeAppUsage.samples(from: history(Array(movedWeeks.dropLast()) + [
-            ("2026-10-03T12:05:00Z", "o", ["fh": 5]), ("2026-10-03T12:10:00Z", "o", ["fh": 5, "sd": 0])])) ?? []
-        suite.expect(AgentClaudeAppUsage.limits(from: gapped, now: at("2026-10-03T12:15:00Z"))?.windows.last?.resetsAt
-                        == at("2026-10-10T12:00:00Z"),
-                     "a renewal read across a reading without the week still counts as seen")
-        let late = AgentClaudeAppUsage.samples(from: history(movedWeeks + [
-            ("2026-10-03T12:25:00Z", "o", ["fh": 5, "sd": 0])])) ?? []
-        suite.expect(AgentClaudeAppUsage.limits(from: late, now: at("2026-10-03T12:30:00Z"))?.windows.last?.resetsAt
-                        == at("2026-10-10T12:00:00Z"),
-                     "a renewal first read within the hour after its time keeps the schedule")
-        // Emptying a week that was barely used reads as no drop at all.
-        let light = AgentClaudeAppUsage.samples(from: history([
-            ("2026-09-19T11:56:00Z", "o", ["sd": 100]), ("2026-09-19T12:01:00Z", "o", ["sd": 0]),
-            ("2026-09-26T11:56:00Z", "o", ["sd": 100]), ("2026-09-26T12:01:00Z", "o", ["sd": 0]),
-            ("2026-09-30T10:35:00Z", "o", ["sd": 60]), ("2026-09-30T10:40:00Z", "o", ["sd": 0]),
-            ("2026-10-03T11:55:00Z", "o", ["sd": 1]), ("2026-10-03T12:05:00Z", "o", ["fh": 5, "sd": 0])])) ?? []
-        suite.expect(AgentClaudeAppUsage.limits(from: light, now: at("2026-10-03T12:10:00Z"))?.windows.last?.resetsAt
-                        == at("2026-10-10T12:00:00Z"),
-                     "a renewal a barely used week could not show does not move a confirmed schedule")
-        // The newer partner alone would allow 11:00; the older one narrows the renewal to 12:00.
-        let partners = AgentClaudeAppUsage.samples(from: history([
-            ("2026-09-19T11:57:00Z", "o", ["sd": 100]), ("2026-09-19T12:02:00Z", "o", ["sd": 0]),
-            ("2026-09-26T10:40:00Z", "o", ["sd": 100]), ("2026-09-26T12:10:00Z", "o", ["sd": 0]),
-            ("2026-10-03T10:30:00Z", "o", ["sd": 100]), ("2026-10-03T12:05:00Z", "o", ["sd": 0]),
-            ("2026-10-07T08:48:00Z", "o", ["sd": 100]), ("2026-10-07T08:53:00Z", "o", ["sd": 0]),
-            ("2026-10-07T10:00:00Z", "o", ["fh": 5, "sd": 4])])) ?? []
-        suite.expect(AgentClaudeAppUsage.limits(from: partners, now: at("2026-10-07T10:05:00Z"))?.windows.last?.resetsAt
-                        == at("2026-10-10T12:00:00Z"),
-                     "a drop several partners confirm renews where all of them agree")
-        let disagreeing = AgentClaudeAppUsage.samples(from: history([
-            ("2026-09-19T08:30:00Z", "o", ["sd": 70]), ("2026-09-19T08:40:00Z", "o", ["sd": 0]),
-            ("2026-09-26T11:57:00Z", "o", ["sd": 100]), ("2026-09-26T12:02:00Z", "o", ["sd": 0]),
-            ("2026-10-03T08:00:00Z", "o", ["sd": 100]), ("2026-10-03T12:05:00Z", "o", ["sd": 0]),
-            ("2026-10-07T08:48:00Z", "o", ["sd": 100]), ("2026-10-07T08:53:00Z", "o", ["sd": 0]),
-            ("2026-10-07T10:00:00Z", "o", ["fh": 5, "sd": 4])])) ?? []
-        suite.expect(AgentClaudeAppUsage.limits(from: disagreeing, now: at("2026-10-07T10:05:00Z"))?.windows.last?.resetsAt
-                        == at("2026-10-10T12:00:00Z"),
-                     "partners that disagree leave the newest of them to place the renewal")
-        let later = AgentClaudeAppUsage.limits(from: samples, now: at("2026-09-23T20:30:00Z"))
-        suite.expect(later?.windows.map(\.kind) == [.weekly] && AgentClaudeAppUsage.limits(from: samples, now: at("2026-10-01T15:00:00Z")) == nil,
-                     "an old reading drops the session it can no longer speak for, and a week-old file is ignored")
-        let afterRenewal = AgentClaudeAppUsage.samples(from: history([
-            ("2026-09-16T19:50:00Z", "o", ["fh": 10, "sd": 95]), ("2026-09-16T20:05:00Z", "o", ["fh": 0, "sd": 1]),
-            ("2026-09-23T21:00:00Z", "o", ["fh": 2, "sd": 3])])) ?? []
-        suite.expect(AgentClaudeAppUsage.limits(from: samples, now: at("2026-09-24T15:00:00Z")) == nil
-                        && AgentClaudeAppUsage.limits(from: afterRenewal, now: at("2026-09-25T15:00:00Z"))?.windows
-                        .map(\.resetsAt) == [at("2026-09-30T20:00:00Z")],
-                     "a day-old week is kept only when its next renewal is known")
-        suite.expect(AgentClaudeAppUsage.limits(from: renewed, now: at("2026-09-24T15:00:00Z")) == nil,
-                     "a week that renewed after the reading is not shown with its old use")
-        let accounts = AgentClaudeAppUsage.samples(from: history([
-            ("2026-09-23T14:10:00Z", "o", ["fh": 30, "sd": 50]), ("2026-09-23T14:20:00Z", "x", ["fh": 90, "sd": 95])])) ?? []
-        suite.expect(AgentClaudeAppUsage.limits(from: accounts, now: now, organization: "o")?.windows.map(\.usedPercent) == [30, 50]
-                        && AgentClaudeAppUsage.limits(from: accounts, now: now, organization: "z") == nil
-                        && AgentClaudeAppUsage.limits(from: accounts, now: now)?.windows.map(\.usedPercent) == [90, 95],
-                     "limits follow the account Claude Code signs in to, not whichever one the app shows")
-        let continuous = AgentClaudeAppUsage.samples(from: history([
-            ("2026-09-23T10:05:00Z", "o", ["fh": 3, "sd": 10]), ("2026-09-23T14:55:00Z", "o", ["fh": 85, "sd": 20]),
-            ("2026-09-23T15:05:00Z", "o", ["fh": 4, "sd": 21]), ("2026-09-23T15:20:00Z", "o", ["fh": 12, "sd": 22])])) ?? []
-        let working = AgentClaudeAppUsage.limits(from: continuous, now: at("2026-09-23T15:25:00Z"))
-        suite.expect(working?.windows.first?.kind == .session
-                        && working?.windows.first?.resetsAt == at("2026-09-23T20:05:00Z"),
-                     "a session that renews during continuous use starts again at the drop")
-        let first = AgentClaudeAppUsage.samples(from: history([("2026-09-23T14:20:00Z", nil, ["fh": 5, "sd": 20])], version: 1))
-        suite.expect(first?.first?.used == ["fh": 5, "sd": 20] && AgentClaudeAppUsage.samples(from: history([], version: 3)) == nil
-                        && AgentClaudeAppUsage.samples(from: Data("[]".utf8)) == nil,
-                     "both versions of the file are read, and an unknown one is left alone")
-        let home = FileManager.default.temporaryDirectory.appending(path: "vorss-claude-app-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: home) }
-        let url = AgentClaudeAppUsage.historyURL(home: home)
-        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? file.write(to: url)
-        suite.expect(AgentClaudeAppUsage.lastCheck(home: home) == at("2026-09-23T14:20:00Z")
-                        && AgentClaudeAppUsage.lastCheck(home: home.appending(path: "none")) == nil,
-                     "the settings read when the Claude app last checked, straight from its file")
-    }
-
     // MARK: Preferences and layout
 
     private static func agentDefaults(_ suite: TestSuite) {
-        let domain = "com.vorssaint.tests.agent-defaults.\(UUID().uuidString)"
+        let domain = "brim.tests.agent-defaults.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: domain)!
         defer { defaults.removePersistentDomain(forName: domain) }
 
-        Defaults.migrateNotchAgentsOptIn(in: defaults, domainName: domain)
-        Defaults.migrateExistingNotchDefaults(in: defaults, domainName: domain)
-        Defaults.migrateNotchAgentsOptIn(in: defaults, domainName: domain)
         let fresh = defaults.persistentDomain(forName: domain) ?? [:]
         suite.expect(fresh[DefaultsKey.notchAgentsEnabled] == nil
-                     && Defaults.registeredDefaults[DefaultsKey.notchAgentsEnabled] as? Bool == false
-                     && fresh[DefaultsKey.notchInitialExtensionsInstalled] == nil,
-                     "fresh profiles keep Agents off on later launches and still install the other island extensions")
+                     && Defaults.registeredDefaults[DefaultsKey.notchAgentsEnabled] as? Bool == false,
+                     "fresh profiles keep Agents off")
         AppFeature.notchAgents.enableOnFirstInstall(in: defaults, savedValues: fresh)
         suite.expect(defaults.bool(forKey: DefaultsKey.notchAgentsEnabled),
                      "explicitly installing Agents enables it on a fresh profile")
-
-        defaults.removePersistentDomain(forName: domain)
-        defaults.set(true, forKey: DefaultsKey.notchEnabled)
-        Defaults.migrateNotchAgentsOptIn(in: defaults, domainName: domain)
-        Defaults.migrateExistingNotchDefaults(in: defaults, domainName: domain)
-        suite.expect(defaults.persistentDomain(forName: domain)?[DefaultsKey.notchAgentsEnabled] as? Bool == false,
-                     "an older island profile keeps the off default supplied by its original migration")
-
-        defaults.removePersistentDomain(forName: domain)
-        defaults.set(true, forKey: DefaultsKey.notchDefaultProfileInitialized)
-        Defaults.migrateNotchAgentsOptIn(in: defaults, domainName: domain)
-        suite.expect(defaults.persistentDomain(forName: domain)?[DefaultsKey.notchAgentsEnabled] as? Bool == true,
-                     "an existing profile keeps its formerly implicit on choice")
-        defaults.set(false, forKey: DefaultsKey.notchAgentsEnabled)
-        Defaults.migrateNotchAgentsOptIn(in: defaults, domainName: domain)
-        suite.expect(!defaults.bool(forKey: DefaultsKey.notchAgentsEnabled),
-                     "migration never turns Agents back on after a later opt-out")
-
-        for choice in [false, true] {
-            defaults.removePersistentDomain(forName: domain)
-            defaults.set(true, forKey: DefaultsKey.notchDefaultProfileInitialized)
-            defaults.set(choice, forKey: DefaultsKey.notchAgentsEnabled)
-            Defaults.migrateNotchAgentsOptIn(in: defaults, domainName: domain)
-            suite.expect(defaults.bool(forKey: DefaultsKey.notchAgentsEnabled) == choice,
-                         "migration preserves the explicit Agents choice \(choice)")
-        }
-        suite.expect(!SettingsBackupSupport.exportKeys().contains(DefaultsKey.notchAgentsOptInMigrated),
-                     "the local migration marker never travels in settings backups")
     }
 
     /// Only what the person shows or is alerted about asks for the limits.
-    private static func limitUse(_ suite: TestSuite) {
-        let domain = "com.vorssaint.tests.notch-agent-limits"
-        let defaults = UserDefaults(suiteName: domain)!
-        defaults.removePersistentDomain(forName: domain)
-        defer { defaults.removePersistentDomain(forName: domain) }
-        for (key, value) in Defaults.registeredDefaults where key.hasPrefix("notch") { defaults.set(value, forKey: key) }
-        for feature in AppFeature.allCases { defaults.set(true, forKey: feature.availabilityKey) }
-        defaults.set(true, forKey: DefaultsKey.notchEnabled)
-        defaults.set(true, forKey: DefaultsKey.notchAgentsEnabled)
-        func used(page: Bool) -> Bool { NotchAgentSupport.limitsInUse(pageShown: page, in: defaults) }
-        let alerts = used(page: false)
-        defaults.set(false, forKey: DefaultsKey.notchAgentsLimitAlert)
-        defaults.set("limits", forKey: DefaultsKey.notchAgentsHiddenCards)
-        let unused = !used(page: false) && !used(page: true)
-        defaults.set("", forKey: DefaultsKey.notchAgentsHiddenCards)
-        let card = !used(page: false) && used(page: true)
-        defaults.set("limits", forKey: DefaultsKey.notchAgentsHiddenCards)
-        defaults.set(NotchAgentReadout.limit.rawValue, forKey: DefaultsKey.notchAgentsReadout)
-        let readout = used(page: false)
-        defaults.set(false, forKey: DefaultsKey.notchAgentsLiveActivity)
-        let liveOff = !used(page: false)
-        defaults.set(NotchIdleContent.agents.rawValue, forKey: DefaultsKey.notchIdleContent)
-        suite.expect(alerts && unused && card && readout && liveOff && used(page: false),
-                     "limits are in use for their alerts, a live limit reading, the resting island or the page's Limits card, and only then")
-    }
 
     private static func preferences(_ suite: TestSuite) {
-        let domain = "com.vorssaint.tests.notch-agents"
+        let domain = "brim.tests.notch-agents"
         let defaults = UserDefaults(suiteName: domain)!
         defaults.removePersistentDomain(forName: domain)
         defer { defaults.removePersistentDomain(forName: domain) }
@@ -3154,10 +2861,10 @@ enum NotchAgentTests {
         suite.expect(NotchSupport.idleContent(in: defaults) == .agents, "the resting island can show AI limits")
         defaults.set(false, forKey: DefaultsKey.notchAgentsEnabled)
         suite.expect(NotchSupport.idleContent(in: defaults) == .none, "resting AI limits leave with the page")
-        suite.expect(NotchSupport.compactActivity(timer: false, downloads: true, agents: true, music: true) == .downloads
-                        && NotchSupport.compactActivity(timer: false, downloads: false, agents: true, music: true) == .agents
+        suite.expect(NotchSupport.compactActivity(agents: true, keepAwake: true) == .agents
+                        && NotchSupport.compactActivity(agents: false, keepAwake: true) == .keepAwake
                         && NotchCompactActivity.agents.module == .agents,
-                     "a working agent outranks music but not a download")
+                     "a working agent outranks Keep Awake")
 
         defaults.set("trend,unknown,trend,spend", forKey: DefaultsKey.notchAgentsCardOrder)
         defaults.set("activity,projects", forKey: DefaultsKey.notchAgentsHiddenCards)
@@ -3185,14 +2892,10 @@ enum NotchAgentTests {
                     DefaultsKey.notchAgentsCardOrder, DefaultsKey.notchAgentsHiddenCards, DefaultsKey.notchAgentsPeriod,
                     DefaultsKey.notchAgentsLimitDisplay, DefaultsKey.notchAgentsLimitFocus, DefaultsKey.notchAgentsLiveActivity, DefaultsKey.notchAgentsReadout,
                     DefaultsKey.notchAgentsFinishAlert, DefaultsKey.notchAgentsFinishMinimum, DefaultsKey.notchAgentsLimitAlert,
-                    DefaultsKey.notchAgentsLimitThreshold, DefaultsKey.notchAgentsDailyBudget, DefaultsKey.notchAgentsPriceUpdates]
-        suite.expect(keys.allSatisfy { Defaults.registeredDefaults[$0] != nil } && SettingsBackupSupport.exportKeys().isSuperset(of: keys)
-                        && Defaults.registeredDefaults[DefaultsKey.notchAgentsEnabled] as? Bool == false
-                        && Defaults.registeredDefaults[DefaultsKey.notchAgentsPriceUpdates] as? Bool == true,
-                     "AI preferences travel in backups, with Agents opt-in and prices kept current when enabled")
-        suite.expect(NotchAgentSupport.updatesPrices(in: defaults), "prices stay current unless turned off")
-        defaults.set(false, forKey: DefaultsKey.notchAgentsPriceUpdates)
-        suite.expect(!NotchAgentSupport.updatesPrices(in: defaults), "turning price updates off stops the download")
+                    DefaultsKey.notchAgentsLimitThreshold, DefaultsKey.notchAgentsDailyBudget]
+        suite.expect(keys.allSatisfy { Defaults.registeredDefaults[$0] != nil }
+                        && Defaults.registeredDefaults[DefaultsKey.notchAgentsEnabled] as? Bool == false,
+                     "AI preferences are registered, with Agents opt-in")
         suite.expect(AppFeature.notchAgents.group == .dynamicIsland && AppFeature.notchAgents.permissions.isEmpty
                         && AppFeature.availabilityDefaults[AppFeature.notchAgents.availabilityKey] as? Bool == true,
                      "the AI page is a Dynamic Island extension that needs no system permission")
@@ -3250,8 +2953,6 @@ enum NotchAgentTests {
                      "costs keep cents while they matter")
         suite.expect(AgentFormat.clock(42) == "0:42" && AgentFormat.clock(3725) == "1:02:05" && AgentFormat.clock(-5) == "0:00",
                      "elapsed time reads like a stopwatch")
-        suite.expect(AgentFormat.day(Date(timeIntervalSince1970: 1_790_035_200), locale: english) == "Sep 22, 2026",
-                     "the price list's day reads the same in every time zone")
 
         func openCodeCardCost(unpriced: Int, cost: Double) -> String {
             if unpriced > 0 {

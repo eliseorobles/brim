@@ -2,144 +2,54 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (C) 2026 Vorssaint
 
-# Cleanly removes Vorssaint and every piece of system state it created:
-# the fan helper daemon, the login item, TCC permissions, preferences, saved
-# state, the app's own data folder and (if present) the password-free
-# closed-lid sudoers rule. Leaves no dead entries behind.
-# Also clears the pre-rename "Vorssaint Utils.app" if it is still around.
+# Cleanly removes Brim and every piece of system state it created: the fan
+# helper daemon, the login item, TCC permissions, preferences, saved state, the
+# app's own data folder, the Claude accounts state folder and (if present) the
+# password-free closed-lid sudoers rule. Leaves no dead entries behind. It touches only Brim's own app, bundle
+# ID and files, never any other app's (upstream Vorssaint's included).
+#
+# Usage: Tools/uninstall.sh          removes Brim
+#        Tools/uninstall.sh --dev    removes Brim (Developer)
 set -uo pipefail
 
-BUNDLE="com.vorssaint.utils"
-APP="/Applications/Vorssaint.app"
-LEGACY_APP="/Applications/Vorssaint Utils.app"
-
-# A readable domain with a missing key is different from a failed read. Export
-# the whole domain first, including an empty dictionary when it does not exist.
-spaces_read_domain() {
-    local snapshot
-    snapshot="$(defaults export "$1" - 2>/dev/null)" || return 1
-    /usr/bin/plutil -lint -s - <<< "$snapshot" >/dev/null 2>&1 || return 1
-    print -r -- "$snapshot"
-}
-
-spaces_recovery_value() {
-    local snapshot=$1 key=$2 kind value
-    kind="$(/usr/bin/plutil -type "$key" - <<< "$snapshot" 2>/dev/null)" || return 0
-    [[ "$kind" == string ]] || return 1
-    value="$(/usr/bin/plutil -extract "$key" raw -o - - <<< "$snapshot" 2>/dev/null)" || return 1
-    [[ -n "$value" ]] || return 1
-    print -r -- "$value"
-}
-
-spaces_dock_preference() {
-    local snapshot kind value
-    snapshot="$(spaces_read_domain com.apple.dock)" || { print unknown; return; }
-    kind="$(/usr/bin/plutil -type mru-spaces - <<< "$snapshot" 2>/dev/null)" || return 0
-    value="$(/usr/bin/plutil -extract mru-spaces raw -o - - <<< "$snapshot" 2>/dev/null)" \
-        || { print unknown; return; }
-    case "$kind:$value" in
-        bool:false|integer:0) print 0 ;;
-        bool:true|integer:1) print 1 ;;
-        *) print unknown ;;
+DEV=0
+for arg in "$@"; do
+    case "$arg" in
+        --dev) DEV=1 ;;
+        *) print -u2 "usage: $0 [--dev]"; exit 2 ;;
     esac
-}
+done
+source "${0:A:h}/identity.sh"
+BUNDLE="$APP_BUNDLE_ID"
+APP="/Applications/$APP_NAME.app"
+# An app that only shares the name is never quit or removed.
+brim_refuse_foreign_bundle "$APP" || exit 1
 
-spaces_dock_pid() {
-    local pids result
-    if pids="$(pgrep -x -U "$UID" Dock 2>/dev/null)"; then
-        [[ -n "$pids" ]] && print -r -- "${pids%%$'\n'*}" || print unknown
-    else
-        result=$?
-        [[ "$result" == 1 ]] || print unknown
-    fi
-    return 0
-}
-
-# What fixed Space order still owes, from the restore
-# marker, the journal of a restart the Dock still owes, the Dock's mru-spaces
-# value and the running Dock's process: "stuck" while rearranging is still off,
-# "unloaded" while it is back on but the Dock keeps a fixed order until it
-# restarts, and nothing when settled. The owed restart counts on its own,
-# because the marker is gone once the setting is back. The journal counts only
-# while the same Dock process runs and the preference still reads as written:
-# a Dock that restarted since has read it, and any other value is a later
-# change the Dock applied itself. An "off" marker owes nothing: rearranging was
-# already off when the feature turned on, so it is the user's own. An
-# inconclusive read is unknown while recovery is recorded, never absent.
-spaces_leftover() {
-    local owed=$1 journal=$2 preference=$3 dock_pid=$4
-    local journal_pid journal_runs journal_wrote reads=""
-    [[ ( -z "$owed" || "$owed" == off ) && -z "$journal" ]] && return 0
-    case "$owed" in
-        ""|absent|on|off) ;;
-        *) print unknown; return ;;
-    esac
-    if [[ "$preference" == unknown || ( -n "$journal" && "$dock_pid" == unknown ) ]]; then
-        print unknown
-        return
-    fi
-    read -r journal_pid journal_runs journal_wrote <<< "$journal"
-    if [[ -n "$journal" ]]; then
-        if [[ "$journal_pid" != <-> || "$journal_runs" != (fixed|rearranging) || -z "$journal_wrote" ]]; then
-            print unknown
-            return
-        fi
-        local written
-        for written in ${=journal_wrote}; do
-            case "$written" in
-                absent|on|off) ;;
-                *) print unknown; return ;;
-            esac
-        done
-    fi
-    case "$preference" in
-        0) reads=off ;;
-        1) reads=on ;;
-        "") reads=absent ;;
-        *) print unknown; return ;;
-    esac
-    if [[ -n "$owed" && "$owed" != off && "$preference" == "0" ]]; then
-        print stuck
-    elif [[ "$journal_runs" == fixed && "$preference" != "0" && -n "$dock_pid" && "$journal_pid" == "$dock_pid"
-            && " $journal_wrote " == *" $reads "* ]]; then
-        print unloaded
-    fi
-}
-
-spaces_removal_state() {
-    local owed=$1 journal=$2
-    [[ ( -z "$owed" || "$owed" == off ) && -z "$journal" ]] && return 0
-    spaces_leftover "$owed" "$journal" "$(spaces_dock_preference)" "$(spaces_dock_pid)"
-}
-
-echo "▸ Quitting…"
-pkill -x Vorssaint 2>/dev/null || true
-pkill -x VorssaintUtils 2>/dev/null || true
+echo "▸ Quitting $APP_NAME…"
+# Only the process running this app's own executable, matched by full path.
+own_pids=($(brim_app_pids))
+(( ${#own_pids} )) && kill "${own_pids[@]}" 2>/dev/null
 sleep 0.5
 
 # Detach from the system from inside whichever bundle still exists: unregisters
-# the login item (no BTM tombstone), restores normal sleep and puts back Space
-# rearranging.
+# the login item (no BTM tombstone), restores normal sleep and takes back what
+# Claude accounts installed.
 # The fan helper's registration lives in the system, not in the bundle, so
 # deleting the app below cannot reach it. Only the binary can drop it, and the
-# check after the loop settles what its absence or failure left behind.
+# check after it settles what its absence or failure left behind.
 detached=1
-ran_app=0
-for candidate in "$APP/Contents/MacOS/Vorssaint" "$LEGACY_APP/Contents/MacOS/VorssaintUtils"; do
-    if [[ -x "$candidate" ]]; then
-        echo "▸ Detaching the fan helper and login item, restoring sleep and Space rearranging…"
-        ran_app=1
-        if "$candidate" --uninstall; then detached=0; fi
-        break
-    fi
-done
+candidate="$APP/Contents/MacOS/$EXECUTABLE"
+if [[ -x "$candidate" ]]; then
+    echo "▸ Detaching the fan helper and login item, restoring sleep…"
+    if "$candidate" --uninstall; then detached=0; fi
+fi
 # `detached` cannot tell a failed unregister from no binary having run, and the
 # second is ordinary: an app trashed by hand, then this script for the rest. It
 # also cannot see a daemon that went despite a reported failure. launchctl
 # settles both without sudo, and still finds a registration held back for a
 # pending fan recovery, which is the one case that must keep warning.
 if (( detached )); then
-    launchctl print "system/$BUNDLE.fan-control" >/dev/null 2>&1
+    launchctl print "system/$FAN_HELPER_ID" >/dev/null 2>&1
     # 113 is "no such service", the only answer that proves absence. Any other
     # failure means launchctl could not tell us, and warning then is the honest
     # side of a check that exists to stop this script claiming what it cannot see.
@@ -148,46 +58,21 @@ fi
 
 # Whether the closed-lid feature is the reason sleep is off. Read here because
 # the preferences that hold it are deleted a few lines below, and without it a
-# check on the setting alone would blame Vorssaint for a `pmset disablesleep 1`
+# check on the setting alone would blame Brim for a `pmset disablesleep 1`
 # that somebody else, or the user, had set.
 sleep_was_ours=0
 [[ "$(defaults read "$BUNDLE" vorssDisabledSleep 2>/dev/null)" == "1" ]] && sleep_was_ours=1
 
-# Whether Space rearranging is still owed back. `--uninstall` clears this
-# marker once the setting is back, so one still here means that restore failed
-# or never ran (an app trashed by hand). It is read here for the same reason
-# as the sleep flag above.
-if ! spaces_snapshot="$(spaces_read_domain "$BUNDLE")" \
-    || ! spaces_owed="$(spaces_recovery_value "$spaces_snapshot" spacesOrderRestore)" \
-    || ! spaces_journal="$(spaces_recovery_value "$spaces_snapshot" spacesOrderRestartPending)"; then
-    print -u2 "Could not read Space arrangement recovery. The app and its preferences were kept."
-    print -u2 "Try uninstalling again when the preferences can be read."
-    exit 1
-fi
-spaces_before_removal="$(spaces_removal_state "$spaces_owed" "$spaces_journal")"
-# Keeping the app only helps while it is still here to try again. An app
-# already trashed by hand cannot restore anything, so the removal goes on and
-# the warnings below say how to put rearranging back.
-if [[ -n "$spaces_before_removal" ]] && (( ran_app )); then
-    case "$spaces_before_removal" in
-        stuck) print -u2 "Space rearranging has not been restored." ;;
-        unloaded) print -u2 "The Dock has not loaded the restored Space arrangement yet." ;;
-        *) print -u2 "Could not confirm that Space rearranging was restored." ;;
-    esac
-    print -u2 "The app and its recovery preferences were kept. Try uninstalling again."
-    exit 1
-fi
-
-echo "▸ Resetting permissions (Accessibility, Screen Recording)…"
+echo "▸ Resetting privacy permissions…"
 tccutil reset All "$BUNDLE" >/dev/null 2>&1 || true
 
-echo "▸ Removing app, preferences, saved state and stored data (clipboard history, shelf files, share links)…"
-rm -rf "$APP" "$LEGACY_APP"
+echo "▸ Removing app, preferences, saved state and stored data (clipboard history, the Memory log)…"
+rm -rf "$APP"
 defaults delete "$BUNDLE" >/dev/null 2>&1 || true
 rm -f "$HOME/Library/Preferences/$BUNDLE.plist"
 rm -rf "$HOME/Library/Saved Application State/$BUNDLE.savedState"
-# Clipboard history, shelf files, captures and the share delete tokens live
-# here; the in-app uninstall takes them, so this path must not keep them.
+# Clipboard history and the Memory log live here; the in-app uninstall takes
+# them, so this path must not keep them.
 rm -rf "$HOME/Library/Application Support/$BUNDLE"
 rm -rf "$HOME/Library/Caches/$BUNDLE"
 # Written by URLSession on the app's behalf, so they exist without the app ever
@@ -198,18 +83,100 @@ rm -rf "$HOME/Library/HTTPStorages/$BUNDLE" "$HOME/Library/HTTPStorages/$BUNDLE.
 # ordinary case, and prints an error over a successful uninstall.
 rm -f "$HOME/Library/Preferences/ByHost/$BUNDLE".*.plist(N)
 
-# The closed-lid rule under its current name and the two earlier ones, the
-# same files the app looks for. Each path is checked on its own. zsh passes an
-# unquoted string to a command as a single word, and one `ls` over all three
-# fails as soon as any of them is missing.
-RULES=(/etc/sudoers.d/vorssaint-clamshell /etc/sudoers.d/vorssaint-utils-clamshell /etc/sudoers.d/vorss-clamshell)
+# The closed-lid rule, the same file the app writes (Sudoers.rulePath). Brim's
+# release and Developer builds share it. Rules under any other name belong to
+# another app and are left alone. zsh passes an unquoted string to a command as
+# a single word, so the names live in an array.
+RULES=(/etc/sudoers.d/brim-clamshell)
 found_rules=()
 for rule in "${RULES[@]}"; do
     [[ -e "$rule" ]] && found_rules+=("$rule")
 done
+# Brim's two variants share the rule; the other one, still installed, keeps it.
+other_app="/Applications/$BRIM_DEVELOPER_APP_NAME.app"
+(( DEV )) && other_app="/Applications/$BRIM_RELEASE_APP_NAME.app"
+if (( ${#found_rules} )) && [[ -d "$other_app" ]]; then
+    echo "▸ Keeping the closed-lid sudoers rule: $other_app still uses it."
+    found_rules=()
+fi
 if (( ${#found_rules} )); then
     echo "▸ Removing closed-lid sudoers rule (asks for your admin password)…"
-    osascript -e "do shell script \"rm -f $found_rules\" with administrator privileges with prompt \"Vorssaint uninstaller\"" || true
+    osascript -e "do shell script \"rm -f $found_rules\" with administrator privileges with prompt \"$APP_NAME uninstaller\"" || true
+fi
+
+# Claude accounts. `--uninstall` above took back the Claude Code status
+# line and shell integration the app installed; installs.json still names
+# whatever it could not (the app was already gone, or the file changed since).
+# Nothing can take that back once the app is gone, so it is named below.
+# Then the state folder goes, last because installs.json is in it: the
+# accounts list, live readings, requests, session owners, sign-in links, MCP
+# backups and the install record. The app finds the folder the same way
+# (ClaudeAccountsPaths) and removes it with the same checks
+# (ClaudeInstallsRemoval.removeState). Tests/UninstallClaudeStateTests.sh runs
+# this block, up to the sleep check, on scratch folders.
+claude_standard="$HOME/.config/brim/claude"
+(( DEV )) && claude_standard="$HOME/.config/brim-dev/claude"
+claude_state="$claude_standard"
+[[ "${BRIM_CLAUDE_STATE_DIR:-}" == /* ]] && claude_state="$BRIM_CLAUDE_STATE_DIR"
+claude_left=()
+if [[ -f "$claude_state/installs.json" ]]; then
+    claude_value() { /usr/bin/plutil -extract "$1" raw -o - "$claude_state/installs.json" 2>/dev/null; }
+    if claude_settings="$(claude_value statusLine.settings)"; then
+        claude_left+=("the \"statusLine\" entry Brim added to $claude_settings")
+    fi
+    if claude_rc="$(claude_value shell.rcFile)"; then
+        claude_line="$(claude_value shell.rcLine)" && claude_left+=("this line in $claude_rc: $claude_line")
+        claude_left+=("the file $(claude_value shell.script)")
+        [[ "$(claude_value shell.linkCreated)" == true ]] && claude_left+=("the link $(claude_value shell.link)")
+    fi
+fi
+# Copies of conversations Brim held out of view while the conversation was
+# open on another account (ClaudeSync's check-out, T-40), in
+# projects/<slug>/.brim-checked-out/. `--uninstall` put every one back
+# (ClaudeSync.checkInEverything); any still there (the app was already gone,
+# or a move failed) is named, since Claude Code never lists it and nothing
+# will put it back once Brim is gone. The folders: ~/.claude, ~/.claude-*
+# and every account folder accounts.json names, each once by real path.
+claude_folders=("$HOME/.claude" "$HOME"/.claude-*(N/))
+if [[ -f "$claude_state/accounts.json" ]]; then
+    claude_index=0
+    while claude_folder="$(/usr/bin/plutil -extract "accounts.$claude_index.folder" raw -o - "$claude_state/accounts.json" 2>/dev/null)"; do
+        [[ "$claude_folder" == /* ]] && claude_folders+=("$claude_folder")
+        claude_index=$((claude_index + 1))
+    done
+fi
+claude_held=()
+for claude_folder in "${claude_folders[@]}"; do
+    claude_held+=("$claude_folder"/projects/*/.brim-checked-out/*.jsonl(N:A))
+done
+claude_held=("${(u)claude_held[@]}")
+# Whether the path has the shape of Brim's Claude state folder: absolute, with
+# no empty, "." or ".." parts, below at least one folder and named "claude";
+# never inside Claude Code's own folders (~/.claude*), never the home folder or
+# a folder above it. The rule ClaudeInstallsRemoval.isStateFolder applies.
+claude_state_shape() {
+    [[ "$1" == /?*/claude && "$1/" != *//* && "$1/" != */./* && "$1/" != */../* ]] || return 1
+    [[ "$1" != */.claude* && "$2" != "$1" && "$2" != "$1"/* ]]
+}
+# Only a real folder goes, never a link, and only when the folder it resolves
+# to has that shape too.
+claude_state_removable() {
+    [[ -d "$1" && ! -L "$1" ]] && claude_state_shape "$1" "$HOME" && claude_state_shape "${1:A}" "${HOME:A}"
+}
+claude_kept=""
+if [[ -e "$claude_state" || -L "$claude_state" ]]; then
+    if claude_state_removable "$claude_state" && rm -rf -- "$claude_state"; then
+        echo "▸ Removed $claude_state (the Claude accounts list)."
+        # The standard folder's parent (~/.config/brim or brim-dev) goes too
+        # when that left it empty: rmdir removes nothing else, and never a
+        # link. ~/.config itself, and the folder above a BRIM_CLAUDE_STATE_DIR,
+        # always stay.
+        if [[ "$claude_state" == "$claude_standard" ]]; then
+            rmdir -- "${claude_state:h}" 2>/dev/null || true
+        fi
+    else
+        claude_kept="$claude_state"
+    fi
 fi
 
 # `--uninstall` restores sleep, but it runs before the app has an
@@ -232,50 +199,36 @@ if (( sleep_was_ours )); then
     fi
 fi
 
-# With the marker gone, nothing will ever put Space rearranging back, so this
-# is the only warning anyone will get. Only a 0 proves it is still off: a
-# missing key is the system default, which rearranges. This only reads the
-# Dock's preference; changing it is left to the user.
-spaces_stuck=0
-spaces_unloaded=0
-spaces_unknown=0
-case "$(spaces_removal_state "$spaces_owed" "$spaces_journal")" in
-    stuck) spaces_stuck=1 ;;
-    unloaded) spaces_unloaded=1 ;;
-    unknown) spaces_unknown=1 ;;
-esac
-
-if (( detached == 0 && sleep_stuck == 0 && sleep_unknown == 0 && spaces_stuck == 0 && spaces_unloaded == 0 && spaces_unknown == 0 )); then
-    echo "✓ Vorssaint fully removed."
+if (( detached == 0 && sleep_stuck == 0 && sleep_unknown == 0 && ${#claude_left} == 0 && ${#claude_held} == 0 )) && [[ -z "$claude_kept" ]]; then
+    echo "✓ $APP_NAME fully removed."
     exit 0
 fi
 if (( detached )); then
-    echo "⚠ Vorssaint removed, but its fan helper is still registered with the system." >&2
-    echo "  Reinstall Vorssaint, then use Settings › Advanced to uninstall from inside the app." >&2
+    echo "⚠ $APP_NAME removed, but its fan helper is still registered with the system." >&2
+    echo "  Reinstall $APP_NAME, then use Settings › Advanced to uninstall from inside the app." >&2
 fi
 if (( sleep_stuck )); then
-    echo "⚠ Vorssaint removed, but this Mac still has sleep switched off." >&2
+    echo "⚠ $APP_NAME removed, but this Mac still has sleep switched off." >&2
     echo "  Closed-lid mode disabled it, and restoring it needed a password this script could not ask for." >&2
     echo "  Put it back with: sudo pmset disablesleep 0" >&2
 fi
 if (( sleep_unknown )); then
-    echo "⚠ Vorssaint removed, but whether sleep came back could not be read." >&2
+    echo "⚠ $APP_NAME removed, but whether sleep came back could not be read." >&2
     echo "  Closed-lid mode had switched it off. Check with: pmset -g | grep SleepDisabled" >&2
     echo "  If that reads 1, put it back with: sudo pmset disablesleep 0" >&2
 fi
-if (( spaces_stuck )); then
-    echo "⚠ Vorssaint removed, but Spaces are still kept in a fixed order." >&2
-    echo "  Fixed Space order had turned rearranging off, and it was not put back." >&2
-    echo "  Turn it back on in System Settings › Desktop & Dock with" >&2
-    echo "  \"Automatically rearrange Spaces based on most recent use\"." >&2
+if (( ${#claude_left} )); then
+    echo "⚠ $APP_NAME removed, but Claude Code still has what it installed. Remove by hand:" >&2
+    for claude_item in "${claude_left[@]}"; do echo "  - $claude_item" >&2; done
+    echo "  (Brim left a timestamped .brim-backup copy beside each file it edited.)" >&2
 fi
-if (( spaces_unloaded )); then
-    echo "⚠ Vorssaint removed, but the Dock still keeps Spaces in a fixed order." >&2
-    echo "  Space rearranging was put back on, and the Dock reads it when it restarts." >&2
-    echo "  Log out and back in to finish." >&2
+if (( ${#claude_held} )); then
+    echo "⚠ $APP_NAME removed, but it still holds copies of conversations out of Claude Code's view." >&2
+    echo "  Move each back one folder up (or delete it if a longer copy of the same file is there):" >&2
+    for claude_item in "${claude_held[@]}"; do echo "  - $claude_item" >&2; done
 fi
-if (( spaces_unknown )); then
-    print -u2 "Vorssaint removed, but whether Space rearranging was restored could not be confirmed."
-    print -u2 "Check Automatically rearrange Spaces based on most recent use in System Settings."
+if [[ -n "$claude_kept" ]]; then
+    echo "⚠ $APP_NAME removed, but $claude_kept was left: it is a link, is not where Brim keeps its Claude state, or could not be deleted." >&2
+    echo "  Delete it by hand if it is Brim's." >&2
 fi
 exit 1

@@ -10,7 +10,6 @@ enum UninstallerTrashTests {
     typealias HomebrewManager = UninstallerFlowTests.Brew
     typealias HomebrewPackage = UninstallerFlowTests.Package
     typealias QuickToolHUD = UninstallerFlowTests.HUD
-    typealias AppFeature = UninstallerFlowTests.Feature
 
     static var fixtureHome: URL!
     static var fixtureGroups: [URL: Set<String>] = [:]
@@ -46,6 +45,7 @@ enum UninstallerTrashTests {
                 App(url: $0, bundleID: UninstallerSupport.bundleIdentifier(of: $0))
             }
         }
+        static func spotlightApplicationPaths() -> [String] { fixtureSpotlightPaths }
     }
     final class NSRunningApplication {
         let bundleIdentifier: String
@@ -79,12 +79,6 @@ enum UninstallerTrashTests {
         static func consentToAutomate(bundleID: String) -> Bool { preconditionFailure("unexpected Finder removal") }
         static func literal(_ value: String) -> String { value }
         static func run(_ source: String) -> Bool { false }
-    }
-    final class CommandBarService {
-        static let shared = CommandBarService()
-        static func spotlightApplicationPaths() -> [String] { fixtureSpotlightPaths }
-        func hasStoredApplicationState(bundleID: String) -> Bool { false }
-        func removeApplicationState(bundleIDs: Set<String>, urls: [URL], remainingBundleIDs: Set<String>) {}
     }
     final class SettingsRouter {
         enum Page { case uninstaller }
@@ -145,26 +139,67 @@ enum UninstallerTrashTests {
             try writeBundle(at: original, id: id)
             try writeBundle(at: original.appendingPathComponent(component), id: helperID)
             try writeBundle(at: other, id: "org.fixture.other")
+            // The watcher's listing step, on the fixture folders: Applications
+            // before Finder's Move to Trash, then after it.
+            typealias Listing = UninstallerSupport.TrashListing
+            let before = Listing.read(applicationFolders: [apps], trash: trash)
             try fm.moveItem(at: original, to: discarded)
+            let after = Listing.read(applicationFolders: [apps], trash: trash)
             guard let identity = UninstallerSupport.fileIdentity(at: discarded) else {
                 throw CocoaError(.fileReadUnknown)
             }
-            func witnessed(from source: URL, destinationID: UInt64, destinationInode: UInt64) -> UninstallerSupport.TrashMove? {
-                var events = UninstallerSupport.TrashRenames()
-                _ = events.accept(source, inode: identity.inode, eventID: 100, home: home)
-                return events.accept(discarded, inode: destinationInode, eventID: destinationID, home: home)
+            suite.expect(before.applications.map(\.url.lastPathComponent) == ["Editor.app", "Other.app"] && before.trash.isEmpty
+                         && after.trash.map(\.identity) == [identity],
+                         "a listing holds each folder's top-level apps with their lstat identity")
+            func listed(_ url: URL, inode: UInt64) -> Listing.Entry {
+                Listing.Entry(url: url, identity: UninstallerSupport.FileIdentity(device: identity.device, inode: inode))
+            }
+            func witnessed(from source: URL, sourceInode: UInt64) -> UninstallerSupport.TrashMove? {
+                Listing.moves(from: Listing(applications: [listed(source, inode: sourceInode)]),
+                              to: Listing(trash: [listed(discarded, inode: identity.inode)]), home: home).first
             }
             let downloads = home.appendingPathComponent("Downloads", isDirectory: true)
             try fm.createDirectory(at: downloads, withIntermediateDirectories: true)
-            suite.expect(witnessed(from: downloads.appendingPathComponent("Editor.app"), destinationID: 101,
-                                  destinationInode: identity.inode) == nil
-                         && witnessed(from: original, destinationID: 103, destinationInode: identity.inode) == nil
-                         && witnessed(from: original, destinationID: 101, destinationInode: identity.inode &+ 1) == nil,
-                         "discarded downloads, intervening moves and unrelated inodes do not grant ownership")
-            guard let move = witnessed(from: original, destinationID: 101, destinationInode: identity.inode) else {
+            // Gone from Applications in one listing, in the Trash only in the next.
+            let gone = Listing()
+            let twoSteps = Listing.moves(from: Listing(applications: [listed(original, inode: identity.inode)]), to: gone, home: home)
+                + Listing.moves(from: gone, to: Listing(trash: [listed(discarded, inode: identity.inode)]), home: home)
+            suite.expect(witnessed(from: downloads.appendingPathComponent("Editor.app"), sourceInode: identity.inode) == nil
+                         && twoSteps.isEmpty
+                         && witnessed(from: original, sourceInode: identity.inode &+ 1) == nil,
+                         "discarded downloads, a move seen in two steps and unrelated inodes do not grant ownership")
+            suite.expect(Listing.moves(from: Listing(applications: [listed(original, inode: identity.inode)]),
+                                       to: Listing(applications: [listed(original, inode: identity.inode)],
+                                                   trash: [listed(discarded, inode: identity.inode)]), home: home).isEmpty,
+                         "an app still listed in Applications was not moved to the Trash")
+            guard let move = Listing.moves(from: before, to: after, home: home).first,
+                  witnessed(from: original, sourceInode: identity.inode) == move else {
                 suite.expect(false, "a move between the temporary Applications folder and Trash must be recognized")
                 return
             }
+            suite.expect(Listing.moves(from: after, to: after, home: home).isEmpty,
+                         "an app already in the Trash in the previous listing is not offered again")
+            // Real failure (review, T-42): Finder moved the app between the
+            // listing's two reads (Applications, then Trash), so one listing
+            // held it in both; it was rejected as still installed, then as
+            // already trashed, and no cleanup was offered.
+            let both = Listing(applications: before.applications, trash: after.trash)
+            suite.expect(Listing.moves(from: before, to: both, home: home).isEmpty
+                         && Listing.moves(from: both, to: after, home: home).isEmpty,
+                         "kept in both places, the move is lost (the failure the resolved listing prevents)")
+            let raced = Listing.resolved(applications: before.applications, trash: after.trash)
+            suite.expect(raced.trash.isEmpty && raced.applications == before.applications
+                         && Listing.moves(from: before, to: raced, home: home).isEmpty
+                         && Listing.moves(from: raced, to: after, home: home).first == move,
+                         "an app listed in both counts as still in Applications, so the next listing sees the move in one step")
+            // The watcher's source contract: kqueue folder watches off the main
+            // queue, no FSEvents.
+            let watcherSource = (try? String(contentsOfFile: "Sources/Brim/Services/Uninstall/TrashAppWatcher.swift",
+                                             encoding: .utf8)) ?? ""
+            suite.expect(!watcherSource.isEmpty && !watcherSource.contains("FSEventStream")
+                         && watcherSource.contains("makeFileSystemObjectSource") && watcherSource.contains("O_EVTONLY")
+                         && !watcherSource.contains("queue: .main") && watcherSource.contains("TrashListing.moves(from:"),
+                         "the Trash watcher lists folders on kqueue events, off the main queue, without FSEvents")
             suite.expect(!model.select(appURL: discarded) && model.refusal?.refusal == .unverifiedTrashMove,
                          "manual selection of a discarded app cannot open its data for removal")
             fixtureGroups[discarded] = [groupID]

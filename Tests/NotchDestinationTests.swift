@@ -9,7 +9,7 @@ import Carbon.HIToolbox
 enum NotchDestinationContract {
     enum ReviewDefaults { static var current: UserDefaults! }
     enum NotchContentTransition { case none, reveal, replace }
-    /// Like AppKit while Vorssaint stays active, makeKey and resignKey leave
+    /// Like AppKit while Brim stays active, makeKey and resignKey leave
     /// the app's key window as it was; tests set that record by hand.
     final class Panel {
         var isKeyWindow = true
@@ -37,7 +37,6 @@ enum NotchDestinationContract {
         static let shared = Reader()
         struct Reader { func rememberPasteTarget() {} }
     }
-    enum QuickLauncherService { static var shared = QuickLauncherContract.Launcher() }
     enum MenuPanelFocus {
         static let shared = Focus()
         final class Focus {
@@ -45,23 +44,6 @@ enum NotchDestinationContract {
             func showNormalPanel() { normalRequests += 1 }
         }
     }
-    final class Timer {
-        var running = true
-        var syncs = 0
-        var suspensions = 0
-        func syncWithPreferences() { running = true; syncs += 1 }
-        func suspend() { running = false; suspensions += 1 }
-    }
-    enum NotchTimerService { static var shared = Timer() }
-    enum PreciseVolumeRollerService {
-        static let shared = Service()
-        struct Service { func syncWithPreferences() {} }
-    }
-    final class Brightness {
-        var syncs = 0
-        func syncWithPreferences() { syncs += 1 }
-    }
-    enum BrightnessService { static var shared = Brightness() }
     final class LockScreen {
         var syncs: [NotchSessionState] = []
         var sounds: [Bool] = []
@@ -70,11 +52,6 @@ enum NotchDestinationContract {
         func playSound(locking: Bool) { sounds.append(locking) }
     }
     enum NotchLockScreenService { static var shared = LockScreen() }
-    final class CountdownCalendar {
-        var countdown: NotchCalendarCountdown?
-        var revealing: String?
-    }
-    enum NotchCalendarService { static var shared = CountdownCalendar() }
     final class Hotkey {
         var onPress: (() -> Void)?
         var refuses = false
@@ -102,9 +79,6 @@ enum NotchDestinationContract {
         var showsKeyboardFocus = false
         var showingAppPanel = false
         var showingSections = false
-        var showingCommandBar = false
-        var commandBarClosings = 0
-        func commandBarDidClose() { commandBarClosings += 1 }
         var sectionQuery = ""
         var sectionRow = 0
         var highlightedSection: NotchModule?
@@ -113,90 +87,51 @@ enum NotchDestinationContract {
         var openedByHover = false
         var inside = false
         var notice: NotchNotice?
-        var noticeExpanded = false
-        var noticeWork: DispatchWorkItem?
         var compactActivity: NotchCompactActivity?
         var hoverState = NotchHoverState()
         var hoverWork: DispatchWorkItem?
         var requestedDetail: MetricDetailKind?
         var detailHasPage = false
         var pageLayers: [NotchModule: () -> Void] = [:]
-        var captureControls: AnyObject?
-        var heldDrag = false
         var presentationSyncs = 0
         var presentationTearDowns = 0
-        var captureControlsCancel: (() -> Void)?
-        var captureClose: (() -> Void)?
         func mutatePresentation(transitionContent: NotchContentTransition, _ change: () -> Void) { change() }
         func installEventMonitors() {}
         func syncVisibleConsumers() { requestedDetail = selectedMetric }
         func provideHapticFeedback() {}
-        func endCaptureControls() {}
         let hotkey = Hotkey()
         var shortcutFailureWrites = 0
         var shortcutRegistrationFailed = false { didSet { shortcutFailureWrites += 1 } }
-        var captureControlsExpansions = 0
-        func expandCaptureControls() { captureControlsExpansions += 1 }
-        func clearCapture() { captureControlsCancel = nil; captureClose = nil }
         func tearDownPresentation() { expanded = false; presentationTearDowns += 1 }
     }
 
     static func run(_ suite: TestSuite) {
-        let domain = "com.vorssaint.tests.notch-destinations"
+        let domain = "brim.tests.notch-destinations"
         let defaults = UserDefaults(suiteName: domain)!
         defaults.removePersistentDomain(forName: domain)
         ReviewDefaults.current = defaults
-        let previousLauncherDefaults = QuickLauncherContract.ReviewDefaults.current
-        QuickLauncherContract.ReviewDefaults.current = defaults
         defer {
-            QuickLauncherContract.ReviewDefaults.current = previousLauncherDefaults
             ReviewDefaults.current = nil
             defaults.removePersistentDomain(forName: domain)
-            QuickLauncherService.shared = QuickLauncherContract.Launcher()
-            NotchTimerService.shared = Timer()
         }
         for (key, value) in Defaults.registeredDefaults where key.hasPrefix("notch") { defaults.set(value, forKey: key) }
         for feature in AppFeature.allCases { defaults.set(true, forKey: feature.availabilityKey) }
         defaults.set(true, forKey: DefaultsKey.notchEnabled)
+        // The AI agents page, which the agents activity opens, is opt-in.
+        defaults.set(true, forKey: DefaultsKey.notchAgentsEnabled)
         let focus = Service()
         focus.showsKeyboardFocus = true
         focus.open(.controls)
         suite.expect(!focus.showsKeyboardFocus, "reopening the island clears the previous automatic focus indicator")
         focus.showsKeyboardFocus = true
-        focus.open(.music)
+        focus.open(.clipboard)
         suite.expect(focus.showsKeyboardFocus, "changing pages in the open island preserves keyboard focus visibility")
         focus.collapse()
         focus.open(.controls, takeFocus: false)
         suite.expect(!focus.showsKeyboardFocus, "hover opening starts without an automatic focus indicator")
-        scratchpadContracts(defaults: defaults, suite: suite)
+        keyHandoffContracts(suite: suite)
         reopeningContracts(defaults: defaults, suite: suite)
-        countdownContracts(defaults: defaults, suite: suite)
         stepBackContracts(suite)
-        // A page opened while the Command Bar is in the island takes its place.
-        let barHost = Service()
-        barHost.expanded = true
-        barHost.showingCommandBar = true
-        barHost.modules = NotchSupport.modules(in: defaults)
-        barHost.open(.controls)
-        suite.expect(barHost.expanded && !barHost.showingCommandBar && barHost.selected == .controls
-                     && barHost.commandBarClosings == 1,
-                     "opening a page in place of the Command Bar closes the bar once")
-        barHost.open(.controls)
-        suite.expect(barHost.commandBarClosings == 1, "opening a page without the bar leaves the bar alone")
-        for resting in [NotchIdleContent.none, .music] {
-            defaults.set(resting.rawValue, forKey: DefaultsKey.notchIdleContent)
-            defaults.set(false, forKey: DefaultsKey.notchShowPlayingMusic)
-            let service = Service()
-            service.open(.music)
-            suite.expect(service.expanded && service.selected == .music && service.panel?.acceptsKeyFocus == true,
-                   "hiding automatic music preserves explicit opening of its controls")
-            service.open(.controls)
-            suite.expect(service.expanded && service.selected == .controls
-                   && NotchSupport.controls(in: defaults).contains(.music),
-                   "hiding automatic music preserves playback controls on the island's home page")
-        }
-        defaults.set(NotchIdleContent.music.rawValue, forKey: DefaultsKey.notchIdleContent)
-        defaults.set(true, forKey: DefaultsKey.notchShowPlayingMusic)
         let families: [(MetricDetailKind, AppFeature)] = [
             (.cpu, .monitorCPU), (.gpu, .monitorGPU), (.memory, .monitorMemory),
             (.network, .monitorNetwork), (.disk, .monitorDisk),
@@ -228,67 +163,9 @@ enum NotchDestinationContract {
         service.open(.system, metric: .fan)
         suite.expect(service.modules.contains(.system) && service.selectedMetric == .fan,
                "a separately installed fan feature exposes System and retains its direct detail")
-
-        QuickLauncherService.shared = QuickLauncherContract.Launcher()
-        let launcher = QuickLauncherService.shared
-        let firstPresentation = launcher.presentationID
-        service.open(.tools)
-        suite.expect(service.selected == .tools && launcher.selectedIndex == 0 && launcher.presentationID != firstPresentation,
-               "opening Tools inside the island prepares keyboard selection on its first presentation")
-        QuickLauncherContract.events.removeAll()
-        let enter = QuickLauncherContract.NSEvent(keyCode: UInt16(kVK_Return))
-        suite.expect(launcher.handlePanelKey(enter, flow: .columns(rows: 2)) == nil
-               && QuickLauncherContract.events == ["keepAwake.toggle"],
-               "Return works immediately after the island opens Tools")
-        let unchangedPresentation = launcher.presentationID
-        service.open(.tools)
-        suite.expect(launcher.presentationID == unchangedPresentation,
-               "reopening the same visible Tools destination does not reset its working presentation")
-        launcher.activeUtility = .urlCleaner
-        service.open(.controls)
-        service.open(.tools)
-        suite.expect(launcher.activeUtility == .urlCleaner,
-               "navigation preserves a still-available hosted utility")
-        service.open(.controls)
-        defaults.set(false, forKey: AppFeature.urlCleaner.availabilityKey)
-        service.open(.tools)
-        suite.expect(launcher.activeUtility == nil,
-               "returning to Tools after removal cannot revive its previous utility")
-        service.open(.controls)
-        launcher.candidates = []
-        service.open(.tools)
-        suite.expect(launcher.selectedIndex == nil, "an empty Tools module leaves keyboard activation without a target")
         sessionContracts(suite)
         lockScreenContracts(defaults: defaults, suite: suite)
         shortcutContracts(defaults: defaults, suite: suite)
-        captureControlsContracts(suite)
-    }
-
-    /// The capture controls cover the open page and hold collapsing off. While
-    /// they are up, a route that opens the island expands them instead, so no
-    /// page waits behind them to open by itself once they end.
-    private static func captureControlsContracts(_ suite: TestSuite) {
-        let shortcuts: [(String, NotchModule, (Service) -> Bool)] = [
-            ("Clipboard", .clipboard, { $0.showClipboard(toggle: true) }),
-            ("Scratchpad", .scratchpad, { $0.showScratchpad(toggle: true) }),
-            ("quick panel", .tools, { $0.openQuickPanel(toggle: true) }),
-            ("shelf", .files, { $0.openShelf(toggle: true) }),
-        ]
-        for (name, module, press) in shortcuts {
-            let service = Service()
-            service.captureControls = NSObject()
-            let presses = (0..<2).map { _ in press(service) && !service.expanded }
-            suite.expect(presses == [true, true] && service.captureControlsExpansions == 2,
-                         "the \(name) shortcut expands the capture controls on every press instead of opening the island behind them")
-            service.captureControls = nil
-            suite.expect(press(service) && service.expanded && service.selected == module,
-                         "once the capture controls end, the \(name) shortcut opens its page")
-        }
-        let page = Service()
-        page.captureControls = NSObject()
-        page.open(.music)
-        suite.expect(!page.expanded && page.captureControlsExpansions == 1,
-                     "opening a page while the capture controls are up expands them instead")
     }
 
     /// Escape steps back through what the island shows, then closes it.
@@ -303,7 +180,7 @@ enum NotchDestinationContract {
         suite.expect(!metric.expanded, "Escape closes the island once nothing lies behind the page")
 
         let panel = Service()
-        panel.open(.music)
+        panel.open(.clipboard)
         panel.open(.controls, appPanel: true)
         panel.stepBack()
         suite.expect(panel.expanded && panel.selected == .controls && !panel.showingAppPanel,
@@ -321,7 +198,7 @@ enum NotchDestinationContract {
 
         for route in ["a metric", "the app panel"] {
             let menuBar = Service()
-            menuBar.open(.music)
+            menuBar.open(.clipboard)
             if route == "a metric" { menuBar.showMetric(.cpu, toggle: true) } else { menuBar.openAppPanel(toggle: true) }
             let detail = menuBar.selectedMetric == .cpu || menuBar.showingAppPanel
             menuBar.stepBack()
@@ -357,7 +234,7 @@ enum NotchDestinationContract {
         let reopened = Service()
         reopened.open(.system)
         reopened.open(.system, metric: .cpu)
-        // Capture controls close the island without clearing its detail.
+        // Closing the island keeps its detail.
         reopened.expanded = false
         reopened.open(.system, metric: .cpu)
         let reopenedDetail = reopened.expanded && reopened.selectedMetric == .cpu
@@ -366,37 +243,28 @@ enum NotchDestinationContract {
 
         var closes: [NotchModule] = []
         let layered = Service()
-        layered.open(.music)
-        layered.setPageLayer(.music) { closes.append(.music); layered.setPageLayer(.music, close: nil) }
-        layered.setPageLayer(.calendar) { closes.append(.calendar) }
+        layered.open(.clipboard)
+        layered.setPageLayer(.clipboard) { closes.append(.clipboard); layered.setPageLayer(.clipboard, close: nil) }
+        layered.setPageLayer(.agents) { closes.append(.agents) }
         layered.stepBack()
-        suite.expect(layered.expanded && closes == [.music], "Escape closes the page's own layer before the island")
+        suite.expect(layered.expanded && closes == [.clipboard], "Escape closes the page's own layer before the island")
         layered.stepBack()
-        suite.expect(!layered.expanded && closes == [.music], "only the visible page's layer answers Escape")
+        suite.expect(!layered.expanded && closes == [.clipboard], "only the visible page's layer answers Escape")
 
         let covered = Service()
         covered.open(.system)
         covered.setPageLayer(.system) { closes.append(.system) }
         covered.open(.system, metric: .cpu)
         covered.stepBack()
-        suite.expect(covered.selectedMetric == nil && closes == [.music],
+        suite.expect(covered.selectedMetric == nil && closes == [.clipboard],
                      "a detail steps back before a layer of the page it covers")
 
-        for blocker in ["drag", "capture"] {
-            let held = Service()
-            held.open(.system)
-            held.open(.system, metric: .cpu)
-            if blocker == "drag" { held.heldDrag = true } else { held.captureControls = NSObject() }
-            held.stepBack()
-            suite.expect(held.expanded && held.selectedMetric == .cpu,
-                         "Escape leaves the island as it is during a \(blocker), like closing does")
-        }
     }
 
     /// The island resigns by hand while it stays on screen. The keyboard goes
-    /// back to a regular Vorssaint window only while Vorssaint is in front.
+    /// back to a regular Brim window only while Brim is in front.
     private static func keyHandoffContracts(suite: TestSuite) {
-        let vorssaint = RunningApplication(processIdentifier: ProcessInfo.processInfo.processIdentifier)
+        let brim = RunningApplication(processIdentifier: ProcessInfo.processInfo.processIdentifier)
         /// Returns the windows that were made key, front to back.
         func handoff(frontmost: RunningApplication?, keyIsPanel: Bool = true, settingsVisible: Bool = true,
                      settingsIsRegular: Bool = true, otherSpaceInFront: Bool = false,
@@ -425,60 +293,17 @@ enum NotchDestinationContract {
             guard !panel.isKeyWindow else { return ["island"] }
             return named.flatMap { name, window in Array(repeating: name, count: window.keyRequests) }
         }
-        suite.expect(handoff(frontmost: vorssaint) == ["settings"],
-                     "closing the island hands the keyboard back to Settings while Vorssaint stays active")
-        suite.expect(handoff(frontmost: vorssaint, otherSpaceInFront: true, regularBehind: true) == ["settings"],
+        suite.expect(handoff(frontmost: brim) == ["settings"],
+                     "closing the island hands the keyboard back to Settings while Brim stays active")
+        suite.expect(handoff(frontmost: brim, otherSpaceInFront: true, regularBehind: true) == ["settings"],
                      "closing the island hands the keyboard to the frontmost regular window on this Space")
         suite.expect(handoff(frontmost: RunningApplication(processIdentifier: 1)).isEmpty,
                      "closing the island leaves the keyboard alone while another app takes over")
-        suite.expect(handoff(frontmost: vorssaint, keyIsPanel: false).isEmpty,
+        suite.expect(handoff(frontmost: brim, keyIsPanel: false).isEmpty,
                      "closing the island hands nothing over once AppKit has let it go")
-        suite.expect(handoff(frontmost: vorssaint, settingsVisible: false).isEmpty
-                     && handoff(frontmost: vorssaint, settingsIsRegular: false).isEmpty,
+        suite.expect(handoff(frontmost: brim, settingsVisible: false).isEmpty
+                     && handoff(frontmost: brim, settingsIsRegular: false).isEmpty,
                      "closing the island hands the keyboard only to a visible regular window")
-    }
-
-    private static func scratchpadContracts(defaults: UserDefaults, suite: TestSuite) {
-        let service = Service()
-        suite.expect(service.showScratchpad(toggle: true) && service.expanded && service.selected == .scratchpad,
-                     "the Scratchpad shortcut opens its configured island destination")
-        service.panel?.isKeyWindow = false
-        suite.expect(service.showScratchpad(toggle: true) && service.expanded,
-                     "a visible Scratchpad without keyboard focus is focused instead of closed")
-        service.panel?.isKeyWindow = true
-        suite.expect(service.showScratchpad(toggle: true) && !service.expanded,
-                     "the shortcut closes a Scratchpad that already owns the keyboard")
-        keyHandoffContracts(suite: suite)
-        // While Vorssaint stays the active app, collapse() resigns by hand: the
-        // flag clears, AppKit keeps the island key, and makeKey changes neither.
-        NSApp.keyWindow = service.panel
-        service.panel?.isKeyWindow = false
-        _ = service.showScratchpad(toggle: true)
-        suite.expect(service.showScratchpad(toggle: true) && !service.expanded,
-                     "the shortcut closes a reopened Scratchpad AppKit still keeps as its key window")
-        NSApp.keyWindow = Panel()
-        _ = service.showScratchpad(toggle: true)
-        suite.expect(service.showScratchpad(toggle: true) && service.expanded,
-                     "a Scratchpad is focused, not closed, while another window holds the keyboard")
-        NSApp.keyWindow = nil
-        service.collapse()
-        let detached = Service()
-        _ = detached.showScratchpad(toggle: true)
-        detached.panel = nil
-        suite.expect(detached.showScratchpad(toggle: true) && detached.expanded,
-                     "an island without a panel is never taken for the key window")
-        service.panel?.isKeyWindow = true
-        defaults.set(false, forKey: DefaultsKey.notchScratchpad)
-        suite.expect(!service.showScratchpad() && !service.expanded,
-                     "choosing a separate Scratchpad window leaves the island untouched")
-        defaults.set(true, forKey: DefaultsKey.notchScratchpad)
-        service.hiddenInFullscreen = true
-        suite.expect(service.showScratchpad() && service.expanded,
-                     "a full-screen user shortcut opens Scratchpad despite hidden automatic feedback")
-        service.collapse()
-        service.acceptsUserInteraction = false
-        suite.expect(!service.showScratchpad() && !service.expanded,
-                     "an unavailable island hands Scratchpad opening back to its ordinary window")
     }
 
     private static func reopeningContracts(defaults: UserDefaults, suite: TestSuite) {
@@ -490,42 +315,22 @@ enum NotchDestinationContract {
                "opening the visible activity stays the default")
         for returnHome in [false, true] {
             defaults.set(returnHome, forKey: DefaultsKey.notchReturnHome)
-            let payload = SettingsBackupSupport.payload(appVersion: "test") {
-                if $0 == DefaultsKey.notchReturnHome { return returnHome }
-                if $0 == DefaultsKey.notchHomeModule { return NotchModule.music.rawValue }
-                if $0 == DefaultsKey.notchOpensActivity { return false }
-                if $0 == DefaultsKey.notchHideUntilHover { return true }
-                if $0 == DefaultsKey.notchHoverDelay { return 0.65 }
-                if $0 == DefaultsKey.notchCloseDelay { return 1.5 }
-                return nil
-            }
-            let data = try? JSONSerialization.data(withJSONObject: payload)
-            let decoded = data.flatMap { (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any] }
-            let restored = decoded.flatMap { SettingsBackupSupport.sanitizedSettings(from: $0) }
-            suite.expect(restored?[DefaultsKey.notchReturnHome] as? Bool == returnHome
-                   && restored?[DefaultsKey.notchHomeModule] as? String == NotchModule.music.rawValue
-                   && restored?[DefaultsKey.notchOpensActivity] as? Bool == false
-                   && restored?[DefaultsKey.notchHoverDelay] as? Double == 0.65
-                   && restored?[DefaultsKey.notchCloseDelay] as? Double == 1.5
-                   && restored?[DefaultsKey.notchHideUntilHover] as? Bool == true,
-                   "the opening behavior, selected page, activity choice and hover timings survive backup and restore")
-
             let service = Service()
-            service.open(.files)
+            service.open(.clipboard)
             service.open()
-            suite.expect(service.selected == .files, "an already open island does not jump away from the current page")
+            suite.expect(service.selected == .clipboard, "an already open island does not jump away from the current page")
             service.expanded = false
             service.open()
-            suite.expect(service.selected == (returnHome ? .controls : .files),
+            suite.expect(service.selected == (returnHome ? .controls : .clipboard),
                    "reopening either restores the last page or returns home according to the preference")
             service.expanded = false
-            service.open(.music)
-            suite.expect(service.selected == .music, "an explicit destination always wins over the opening preference")
+            service.open(.agents)
+            suite.expect(service.selected == .agents, "an explicit destination always wins over the opening preference")
             defaults.set("controls", forKey: DefaultsKey.notchHiddenModules)
-            defaults.set("files,music", forKey: DefaultsKey.notchModuleOrder)
+            defaults.set("clipboard,agents", forKey: DefaultsKey.notchModuleOrder)
             service.expanded = false
             service.open()
-            suite.expect(service.selected == (returnHome ? .files : .music),
+            suite.expect(service.selected == (returnHome ? .clipboard : .agents),
                    "a hidden home page falls back to the first visible page without unhiding controls")
             defaults.set("", forKey: DefaultsKey.notchHiddenModules)
             defaults.set("", forKey: DefaultsKey.notchModuleOrder)
@@ -536,8 +341,8 @@ enum NotchDestinationContract {
             let service = Service()
             service.open()
             suite.expect(service.selected == page, "each available page can be chosen for reopening: \(page.rawValue)")
-            service.open(.files)
-            suite.expect(service.selected == .files, "a saved opening page never overrides explicit navigation")
+            service.open(.clipboard)
+            suite.expect(service.selected == .clipboard, "a saved opening page never overrides explicit navigation")
             defaults.set(page.rawValue, forKey: DefaultsKey.notchHiddenModules)
             service.expanded = false
             service.open()
@@ -548,7 +353,7 @@ enum NotchDestinationContract {
         for destination in NotchReopeningDestination.allCases {
             defaults.set(destination.rawValue, forKey: DefaultsKey.notchHomeModule)
             let service = Service()
-            service.open(.files)
+            service.open(.clipboard)
             service.expanded = false
             let focusRequests = MenuPanelFocus.shared.normalRequests
             service.open()
@@ -556,20 +361,22 @@ enum NotchDestinationContract {
                    && service.showingSections == (destination == .explore),
                    "reopening shows the selected app panel or Explore destination")
             if destination == .explore {
-                suite.expect(service.highlightedSection == .files && service.sectionQuery.isEmpty,
+                suite.expect(service.highlightedSection == .clipboard && service.sectionQuery.isEmpty,
                        "reopening Explore highlights its current page for keyboard navigation")
             }
             suite.expect(MenuPanelFocus.shared.normalRequests - focusRequests == (destination == .appPanel ? 1 : 0),
                    "only opening the app panel resets its panel focus")
             service.expanded = false
-            service.open(.music)
-            suite.expect(service.selected == .music && !service.showingAppPanel && !service.showingSections,
+            service.open(.agents)
+            suite.expect(service.selected == .agents && !service.showingAppPanel && !service.showingSections,
                    "explicit page navigation wins over a saved app panel or Explore destination")
 
             service.expanded = false
-            service.compactActivity = .timer
+            service.compactActivity = .agents
+            service.open(.clipboard)
+            service.expanded = false
             service.open()
-            suite.expect(service.selected == .timer && !service.showingAppPanel && !service.showingSections,
+            suite.expect(service.selected == .agents && !service.showingAppPanel && !service.showingSections,
                    "a visible activity wins over a saved app panel or Explore destination")
 
             defaults.set(false, forKey: DefaultsKey.notchOpensActivity)
@@ -579,14 +386,14 @@ enum NotchDestinationContract {
                    && service.showingSections == (destination == .explore),
                    "with activities turned off, a visible activity leaves the saved app panel or Explore destination")
             service.expanded = false
-            service.openActivity(.timer)
+            service.openActivity(.agents)
             suite.expect(service.showingAppPanel == (destination == .appPanel)
                    && service.showingSections == (destination == .explore),
                    "with activities turned off, a tap on the activity's strip follows the reopening choice too")
             defaults.set(true, forKey: DefaultsKey.notchOpensActivity)
             service.expanded = false
-            service.openActivity(.timer)
-            suite.expect(service.selected == .timer && !service.showingAppPanel && !service.showingSections,
+            service.openActivity(.agents)
+            suite.expect(service.selected == .agents && !service.showingAppPanel && !service.showingSections,
                    "a tap on the activity's strip opens its page while activities open")
         }
         defaults.set("unknown-page", forKey: DefaultsKey.notchHomeModule)
@@ -598,69 +405,15 @@ enum NotchDestinationContract {
         activityContracts(defaults: defaults) { suite.expect($0, $1) }
     }
 
-    /// A click on the event countdown leaves its event for the Calendar page
-    /// only when that page is what opens.
-    private static func countdownContracts(defaults: UserDefaults, suite: TestSuite) {
-        let keys = [DefaultsKey.notchOpensActivity, DefaultsKey.notchReturnHome, DefaultsKey.notchHomeModule,
-                    DefaultsKey.notchHiddenModules, DefaultsKey.notchModuleOrder]
-        let saved = keys.map { defaults.object(forKey: $0) }
-        defer {
-            for (key, value) in zip(keys, saved) { defaults.set(value, forKey: key) }
-            NotchCalendarService.shared = CountdownCalendar()
-        }
-        let start = Date(timeIntervalSinceNow: 600)
-        let event = NotchCalendarEvent(id: "event", title: "Review", calendar: "Work", start: start,
-                                       end: start.addingTimeInterval(1800), allDay: false, location: "")
-        NotchCalendarService.shared.countdown = NotchCalendarCountdown(event: event, ongoing: false)
-        let service = Service()
-        service.openCountdownEvent()
-        suite.expect(service.expanded && service.selected == .calendar && NotchCalendarService.shared.revealing == event.id,
-                     "a click on the event countdown opens Calendar on its event")
-        defaults.set(false, forKey: DefaultsKey.notchOpensActivity)
-        defaults.set(true, forKey: DefaultsKey.notchReturnHome)
-        // Controls hidden and Calendar first: the app panel opens with Calendar still selected.
-        defaults.set("controls", forKey: DefaultsKey.notchHiddenModules)
-        defaults.set("calendar", forKey: DefaultsKey.notchModuleOrder)
-        for destination in NotchReopeningDestination.allCases {
-            defaults.set(destination.rawValue, forKey: DefaultsKey.notchHomeModule)
-            service.expanded = false
-            service.selected = .calendar
-            NotchCalendarService.shared.revealing = nil
-            service.openCountdownEvent()
-            suite.expect(service.expanded && service.selected == .calendar
-                         && (service.showingSections || service.showingAppPanel)
-                         && NotchCalendarService.shared.revealing == nil,
-                         "with activities turned off, \(destination.rawValue) opened in Calendar's place keeps no event for later")
-        }
-        defaults.set("", forKey: DefaultsKey.notchHiddenModules)
-        defaults.set("", forKey: DefaultsKey.notchModuleOrder)
-        defaults.set(NotchModule.calendar.rawValue, forKey: DefaultsKey.notchHomeModule)
-        for returnHome in [false, true] {
-            defaults.set(returnHome, forKey: DefaultsKey.notchReturnHome)
-            service.expanded = false
-            service.selected = returnHome ? .controls : .calendar
-            NotchCalendarService.shared.revealing = nil
-            service.openCountdownEvent()
-            suite.expect(service.selected == .calendar && !service.showingSections && !service.showingAppPanel
-                         && NotchCalendarService.shared.revealing == event.id,
-                         "with activities turned off, Calendar reopened as the last or saved page keeps its event")
-        }
-    }
-
     /// What the closed island is already showing is what opening it shows,
     /// unless the user turned that off for activities.
     private static func activityContracts(defaults: UserDefaults, expect: (Bool, String) -> Void) {
-        let banner = NotchNotice(event: .systemNotification, title: "Alex", detail: "Hello", symbol: "bell.fill",
-                                 notification: NotchNotificationContent(app: "Chat", title: "Alex", subtitle: "", body: "Hello"),
-                                 notificationID: UUID())
-        defaults.set(true, forKey: DefaultsKey.notchNotificationsEnabled)
-        defer { defaults.set(false, forKey: DefaultsKey.notchNotificationsEnabled) }
         for returnHome in [false, true] {
             defaults.set(returnHome, forKey: DefaultsKey.notchReturnHome)
             defaults.set(NotchModule.controls.rawValue, forKey: DefaultsKey.notchHomeModule)
-            for activity in [NotchCompactActivity.timer, .downloads, .calendar, .music, .keepAwake] {
+            for activity in [NotchCompactActivity.agents, .keepAwake] {
                 let service = Service()
-                service.open(.files)
+                service.open(.clipboard)
                 service.expanded = false
                 service.compactActivity = activity
                 expect(service.reopeningModule == activity.module, "a visible activity is what a peek names before opening")
@@ -669,22 +422,22 @@ enum NotchDestinationContract {
                        "hovering or clicking an island that shows \(activity) opens that activity, not the reopening page")
                 service.open()
                 expect(service.selected == activity.module, "an already open island stays on the activity's page")
-                service.open(.files)
-                expect(service.selected == .files, "an explicit page still wins over the visible activity")
+                service.open(.clipboard)
+                expect(service.selected == .clipboard, "an explicit page still wins over the visible activity")
                 service.expanded = false
                 service.compactActivity = nil
                 service.open()
-                expect(service.selected == (returnHome ? .controls : .files),
+                expect(service.selected == (returnHome ? .controls : .clipboard),
                        "once the activity ends, reopening follows the saved preference again")
 
                 defaults.set(false, forKey: DefaultsKey.notchOpensActivity)
-                service.open(.files)
+                service.open(.clipboard)
                 service.expanded = false
                 service.compactActivity = activity
-                expect(service.reopeningModule == (returnHome ? .controls : .files),
+                expect(service.reopeningModule == (returnHome ? .controls : .clipboard),
                        "with activities turned off, a peek over \(activity) names the reopening page")
                 service.open()
-                expect(service.selected == (returnHome ? .controls : .files),
+                expect(service.selected == (returnHome ? .controls : .clipboard),
                        "with activities turned off, opening an island that shows \(activity) follows the saved preference")
                 service.open(activity.module)
                 expect(service.selected == activity.module,
@@ -692,37 +445,18 @@ enum NotchDestinationContract {
                 defaults.set(true, forKey: DefaultsKey.notchOpensActivity)
             }
             let hidden = Service()
-            defaults.set("timer", forKey: DefaultsKey.notchHiddenModules)
+            defaults.set("agents", forKey: DefaultsKey.notchHiddenModules)
             hidden.syncWithPreferences()
-            hidden.compactActivity = .timer
+            hidden.compactActivity = .agents
             hidden.open()
-            expect(hidden.selected == .controls && !hidden.modules.contains(.timer),
+            expect(hidden.selected == .controls && !hidden.modules.contains(.agents),
                    "an activity whose page is hidden cannot open it and falls back to the reopening rule")
             defaults.set("", forKey: DefaultsKey.notchHiddenModules)
 
-            let mirrored = Service()
-            mirrored.syncWithPreferences()
-            mirrored.notice = banner
-            mirrored.noticeExpanded = true
-            mirrored.noticeWork = DispatchWorkItem {}
-            expect(mirrored.reopeningModule == .notifications, "a mirrored banner on the island points at the inbox")
-            mirrored.open()
-            expect(mirrored.selected == .notifications && mirrored.notice == nil && !mirrored.noticeExpanded
-                   && mirrored.noticeWork == nil,
-                   "opening over a held banner shows the inbox and retires the banner so it cannot return after collapsing")
-            defaults.set(false, forKey: DefaultsKey.notchOpensActivity)
-            let bannerOverMusic = Service()
-            bannerOverMusic.syncWithPreferences()
-            bannerOverMusic.compactActivity = .music
-            bannerOverMusic.notice = banner
-            bannerOverMusic.open()
-            expect(bannerOverMusic.selected == .notifications && bannerOverMusic.notice == nil,
-                   "turning activities off still opens the inbox over a mirrored banner, which is not an activity")
-            defaults.set(true, forKey: DefaultsKey.notchOpensActivity)
-            let volume = Service()
-            volume.notice = NotchNotice(event: .volume, title: "Volume", detail: "50%", symbol: "speaker.wave.2.fill", level: 0.5)
-            volume.open()
-            expect(volume.notice != nil && volume.selected == .controls,
+            let feedback = Service()
+            feedback.notice = NotchNotice(event: .inputSource, title: "ABC", detail: "ABC", symbol: "keyboard")
+            feedback.open()
+            expect(feedback.notice != nil && feedback.selected == .controls,
                    "system feedback keeps its own timer and never redirects an opening")
         }
         defaults.set(false, forKey: DefaultsKey.notchReturnHome)
@@ -783,83 +517,55 @@ enum NotchDestinationContract {
 
     private static func sessionContracts(_ suite: TestSuite) {
         let service = Service()
-        NotchTimerService.shared = Timer()
-        let timer = NotchTimerService.shared
-        // The production branch reads the brightness feature from the app's
-        // own defaults; keep it installed for these checks only.
-        let brightnessKey = AppFeature.brightness.availabilityKey
-        let previousBrightness = UserDefaults.standard.object(forKey: brightnessKey)
-        UserDefaults.standard.set(true, forKey: brightnessKey)
-        defer {
-            if let previousBrightness {
-                UserDefaults.standard.set(previousBrightness, forKey: brightnessKey)
-            } else {
-                UserDefaults.standard.removeObject(forKey: brightnessKey)
-            }
-        }
-        BrightnessService.shared = Brightness()
         service.updateSession { $0.displaysSleeping = true }
-        suite.expect(timer.running && timer.suspensions == 0 && timer.syncs == 0
-               && service.presentationTearDowns == 1 && !service.session.canPresent,
-               "display sleep removes presentation while leaving the timer and alarm uninterrupted")
-        suite.expect(BrightnessService.shared.syncs == 1,
-               "the brightness keys go back to the system while the island is torn down")
+        suite.expect(service.presentationTearDowns == 1 && !service.session.canPresent,
+               "display sleep removes presentation")
         service.updateSession { $0.sleeping = true }
-        suite.expect(!timer.running && timer.suspensions == 1 && service.presentationTearDowns == 1,
-               "system sleep suspends the timer even after the display already hid the island")
+        suite.expect(service.presentationTearDowns == 1,
+               "system sleep after the display already hid the island tears nothing down again")
         service.updateSession { $0.locked = true }
         service.updateSession { $0.displaysSleeping = false }
         service.updateSession { $0.sleeping = false }
-        suite.expect(!timer.running && timer.syncs == 0 && service.presentationSyncs == 0,
-               "display and system wake cannot resume an alarm or presentation while the session is locked")
+        suite.expect(service.presentationSyncs == 0,
+               "display and system wake cannot resume presentation while the session is locked")
         service.updateSession { $0.locked = false }
-        suite.expect(timer.running && timer.syncs == 1 && service.presentationSyncs == 1,
+        suite.expect(service.presentationSyncs == 1,
                "unlocking after every sleep condition clears resumes through the normal presentation path once")
 
         service.updateSession { $0.displaysSleeping = true }
         service.updateSession { $0.onConsole = false }
-        suite.expect(!timer.running && timer.suspensions == 2,
-               "switching users suspends an alarm even when the display is already asleep")
         service.updateSession { $0.onConsole = true }
-        suite.expect(timer.running && timer.syncs == 2 && service.presentationSyncs == 1 && !service.session.canPresent,
-               "returning to the same awake session resumes only the timer while its display remains asleep")
+        suite.expect(service.presentationSyncs == 1 && !service.session.canPresent,
+               "returning to the same session leaves the island away while its display remains asleep")
         service.updateSession { $0.displaysSleeping = false }
-        suite.expect(timer.running && service.presentationSyncs == 2,
-               "the island returns only after the display also wakes")
+        suite.expect(service.presentationSyncs == 2, "the island returns only after the display also wakes")
         service.updateSession { $0.displaysSleeping = true }
         service.updateSession { $0.locked = true }
         service.updateSession { $0.onConsole = false }
         service.updateSession { $0.locked = false }
         service.updateSession { $0.displaysSleeping = false }
-        suite.expect(!timer.running && service.presentationSyncs == 2,
-               "unlock and display wake cannot resume work while another login session owns the console")
+        suite.expect(service.presentationSyncs == 2,
+               "unlock and display wake cannot resume presentation while another login session owns the console")
         service.running = false
         service.updateSession { $0.onConsole = true }
-        suite.expect(!timer.running && service.presentationSyncs == 2,
-               "late session notifications cannot restart a stopped island or timer")
+        suite.expect(service.presentationSyncs == 2, "late session notifications cannot restart a stopped island")
     }
 
-    /// Like a click on the closed island, the shortcut expands the capture
-    /// controls while they are up and otherwise toggles the island. It holds its
-    /// key only while it is on and no other shortcut is recording.
+    /// Like a click on the closed island, the shortcut toggles the island. It
+    /// holds its key only while it is on and no other shortcut is recording.
     private static func shortcutContracts(defaults: UserDefaults, suite: TestSuite) {
         defer {
             ShortcutCapture.isCapturing = false
             defaults.set(false, forKey: DefaultsKey.notchShortcutEnabled)
         }
-        func pressed(captureControls: Bool = false, interactive: Bool = true, presses: Int = 1) -> Service {
+        func pressed(interactive: Bool = true, presses: Int = 1) -> Service {
             let service = Service()
             service.installHotkey()
-            if captureControls { service.captureControls = NSObject() }
             service.acceptsUserInteraction = interactive
             for _ in 0..<presses { service.hotkey.onPress?() }
             return service
         }
-        let capture = pressed(captureControls: true)
-        suite.expect(capture.captureControlsExpansions == 1 && !capture.expanded,
-                     "the island shortcut expands the capture controls instead of opening the island behind them")
-        let away = [pressed(interactive: false), pressed(captureControls: true, interactive: false)]
-        suite.expect(away.allSatisfy { !$0.expanded && $0.captureControlsExpansions == 0 },
+        suite.expect(!pressed(interactive: false).expanded,
                      "the island shortcut does nothing while the island does not accept user interaction")
         suite.expect(pressed().expanded && !pressed(presses: 2).expanded,
                      "the island shortcut opens the island and a second press closes it")

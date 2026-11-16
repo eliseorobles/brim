@@ -12,34 +12,6 @@ import ImageIO
 import VMStatisticsCompat
 
 enum RepositoryFeatureTests {
-    /// Run the production `result` and `copy` of the manual cleaner in
-    /// Settings and in the menu panel, with a cleaner whose rules the test
-    /// changes, recording what reaches the clipboard.
-    final class URLCleanerManualCleaner {
-        var rules = URLCleaning.Rules.none
-        var copied: [String] = []
-        func clean(_ text: String) -> URLCleaning.Result? { URLCleaning.clean(text, rules: rules) }
-        func copy(_ urlString: String) { copied.append(urlString) }
-    }
-    protocol URLCleanerManualSurface: AnyObject {
-        var cleaner: URLCleanerManualCleaner { get }
-        var input: String { get set }
-        func copy()
-    }
-    final class URLCleanerManualSettings: URLCleanerManualSurface {
-        let cleaner = URLCleanerManualCleaner()
-        var input = ""
-        var copied: String?
-    }
-    final class URLCleanerManualPanel: URLCleanerManualSurface {
-        let cleaner = URLCleanerManualCleaner()
-        var input = ""
-        var copied: String?
-        var globalNames = ""
-        var siteNames = ""
-        var disabledNames = ""
-    }
-
     private struct SourceRead: Sendable {
         let path: String
         let source: String?
@@ -57,52 +29,6 @@ enum RepositoryFeatureTests {
 
         func sortedReads() -> [SourceRead] {
             lock.withLock { reads.sorted { $0.path < $1.path } }
-        }
-    }
-
-    /// Runs the production `pollPasteboard` against a pasteboard the test
-    /// fills, recording what would be written back.
-    enum URLCleanerPollHost {
-        typealias Kind = AppKit.NSPasteboard.PasteboardType
-        final class Pasteboard {
-            static let general = Pasteboard()
-            var changeCount = 1
-            var types: [Kind]? = []
-            var items = 1
-            var text = ""
-            var html = ""
-            var copiedDuringRead = false
-            var source: String?
-            var onRead: ((Kind) -> Void)?
-            var metadata: Data?
-            var pasteboardItems: [Int]? { Array(repeating: 0, count: items) }
-            func string(forType type: Kind) -> String? {
-                if copiedDuringRead { changeCount += 1 }
-                onRead?(type)
-                return type == .string ? text : type == .html ? html : type == .source ? source : nil
-            }
-            func data(forType type: Kind) -> Data? {
-                onRead?(type)
-                return metadata
-            }
-        }
-        typealias NSPasteboard = Pasteboard
-        final class PollToken { var isCancelled = false }
-        struct PollResult {
-            let changeCount: Int
-            let cleaned: URLCleaning.Result?
-        }
-        static let urlType = Kind(rawValue: "public.url")
-        static var rules: URLCleaning.Rules { .none }
-        static var written: [String] = []
-        static var writtenSources: [String?] = []
-        static var writtenRemote: [Bool] = []
-        static func writeToPasteboard(_ urlString: String, source: String? = nil, remote: Bool = false,
-                                     linkMetadata: Data? = nil) -> Int {
-            written.append(urlString)
-            writtenSources.append(source)
-            writtenRemote.append(remote)
-            return 0
         }
     }
 
@@ -191,16 +117,6 @@ enum RepositoryFeatureTests {
         }
     }
 
-    /// Runs the production site creation, switch and name removal of the rules list
-    /// against stored names the test reads back.
-    final class URLCleanerSiteSwitchHost {
-        var globalNames = ""
-        var siteNames = ""
-        var disabledNames = ""
-        var siteDraft = ""
-        var siteParameterDraft = ""
-    }
-
     static func run(_ suite: TestSuite) {
         func expectEqual(_ actual: String, _ expected: String, _ label: String,
                          file: StaticString = #filePath, line: UInt = #line) {
@@ -219,18 +135,11 @@ enum RepositoryFeatureTests {
         suite.expect(repository.emptyPaths.isEmpty,
                "no Swift source is empty: \(repository.emptyPaths)")
         let requiredSourcePaths = [
-            "Sources/Vorssaint/Services/CommandBar/CommandBarSupport.swift",
-            "Sources/Vorssaint/Services/Homebrew/HomebrewManager.swift",
-            "Sources/Vorssaint/Services/Metrics/DiskSampler.swift",
-            "Sources/Vorssaint/Services/QuickTools/RecentCaptureService.swift",
-            "Sources/Vorssaint/Services/QuickTools/RecentCaptureStore.swift",
-            "Sources/Vorssaint/Services/SelfUninstall.swift",
-            "Sources/Vorssaint/Services/Shelf/ShelfService.swift",
-            "Sources/Vorssaint/Services/URLCleanerService.swift",
-            "Sources/Vorssaint/Support/Uninstaller.swift",
-            "Sources/Vorssaint/UI/MenuPanel/PanelURLCleanerView.swift",
-            "Sources/Vorssaint/UI/Settings/URLCleanerSettings.swift",
-            "Sources/Vorssaint/UI/Theme.swift",
+            "Sources/Brim/Services/Homebrew/HomebrewManager.swift",
+            "Sources/Brim/Services/Metrics/DiskSampler.swift",
+            "Sources/Brim/Services/SelfUninstall.swift",
+            "Sources/Brim/Support/Uninstaller.swift",
+            "Sources/Brim/UI/Theme.swift",
         ]
         let missingSourcePaths = requiredSourcePaths.filter {
             repository.swiftSources[$0] == nil
@@ -240,569 +149,10 @@ enum RepositoryFeatureTests {
         let buildScript = (try? String(contentsOfFile: "build.sh", encoding: .utf8)) ?? ""
         suite.expect(!buildScript.isEmpty, "build.sh is readable for repository contracts")
 
-        // MARK: URL cleaning
-
-        expectEqual(URLCleaning.clean("https://example.com/path?utm_source=news&id=42&fbclid=abc")?.url ?? "",
-                    "https://example.com/path?id=42",
-                    "URL cleaner removes tracking and preserves useful query")
-        expectEqual(URLCleaning.clean(" https://example.com/?GCLID=one&utm_campaign=x#section ")?.url ?? "",
-                    "https://example.com/#section",
-                    "URL cleaner is case-insensitive and preserves fragments")
-        expectEqual(URLCleaning.clean("https://example.com/?id=42")?.url ?? "",
-                    "https://example.com/?id=42",
-                    "URL cleaner leaves clean URLs alone")
-        let customURLParameters = URLCleaning.customParameters(from: " Ref, source\nref,  ")
-        suite.expect(customURLParameters == ["ref", "source"],
-               "URL cleaner normalizes comma-separated custom parameter names")
-        let customURLRules = URLCleaning.rules(globalNames: " Ref, source\nref,  ",
-                                               siteNames: nil, disabledNames: nil)
-        expectEqual(URLCleaning.clean("https://example.com/?REF=one&id=42&source=two",
-                                              rules: customURLRules)?.url ?? "",
-                    "https://example.com/?id=42",
-                    "URL cleaner removes custom parameters by exact case-insensitive name")
-        expectEqual(URLCleaning.clean("https://example.com/?reference=one",
-                                              rules: customURLRules)?.url ?? "",
-                    "https://example.com/?reference=one",
-                    "URL cleaner does not treat custom parameter names as prefixes")
-        // A grouped Form keeps a label column even for an empty label, which
-        // left every field on the right half of its row. The hint has to
-        // travel as `prompt:` and the label has to be hidden for a field to
-        // own its whole row.
-        let urlCleanerSettingsSource = repository.source(
-            at: "Sources/Vorssaint/UI/Settings/URLCleanerSettings.swift")
-        suite.expect(!urlCleanerSettingsSource.contains("TextField(l10n.s."),
-               "no Clean URL field spends its row on a label instead of the field")
-        suite.expect(urlCleanerSettingsSource.components(separatedBy: "TextField(").count
-                == urlCleanerSettingsSource.components(separatedBy: ".labelsHidden()").count,
-               "every Clean URL field hides its label so the field owns the row")
-
-        // The manual result is worked out from the field, so editing the link
-        // or the rules can never leave an older result for Copy to take.
-        let manualSurfaces: [(String, URLCleanerManualSurface)] = [
-            ("Settings", URLCleanerManualSettings()), ("menu panel", URLCleanerManualPanel()),
-        ]
-        for (surface, host) in manualSurfaces {
-            host.input = "https://youtu.be/abc?si=x"
-            host.copy()
-            host.input = "https://example.com/?utm_source=a&keep=1"
-            host.copy()
-            host.cleaner.rules = URLCleaning.rules(globalNames: "keep", siteNames: nil, disabledNames: nil)
-            host.copy()
-            suite.expect(host.cleaner.copied == ["https://youtu.be/abc", "https://example.com/?keep=1",
-                                                 "https://example.com/"],
-                   "\(surface) Copy takes the field's link under the current rules: \(host.cleaner.copied)")
-        }
-        // The result reads the stored rules through the service, so each
-        // surface has to observe every key they come from and read it where
-        // the body works the result out. SwiftUI only redraws for a stored
-        // value the last render read, so a rule changed in Settings beside
-        // the open menu panel would leave the panel showing a link Copy no
-        // longer takes.
-        func memberText(_ lines: [String], _ prefix: String) -> String {
-            lines.firstIndex { $0.hasPrefix(prefix) }.map { start in
-                lines[start...].prefix { $0 != "    }" }.joined(separator: "\n")
-            } ?? ""
-        }
-        let storedRules = memberText(repository.lines(at: "Sources/Vorssaint/Services/URLCleanerService.swift"),
-                                     "    private static var rules: URLCleaning.Rules {")
-        let ruleKeys = storedRules.components(separatedBy: "DefaultsKey.").dropFirst()
-            .map { rest in String(rest.prefix { $0.isLetter || $0.isNumber }) }
-        for (surface, path) in [("Settings", "Sources/Vorssaint/UI/Settings/URLCleanerSettings.swift"),
-                                ("menu panel", "Sources/Vorssaint/UI/MenuPanel/PanelURLCleanerView.swift")] {
-            let lines = repository.lines(at: path)
-            let reads = memberText(lines, "    private var result:") + "\n" + memberText(lines, "    private var rules:")
-            let unobserved = ruleKeys.filter { key in
-                guard let declaration = lines.first(where: { $0.contains("@AppStorage(DefaultsKey.\(key)) private var ") }),
-                      let name = declaration.components(separatedBy: "private var ").last?
-                        .prefix(while: { $0.isLetter || $0.isNumber }),
-                      !name.isEmpty else { return true }
-                // A value read, not an argument label of the same name.
-                return reads.range(of: "(?<![\\w.])\(name)(?![\\w:])", options: .regularExpression) == nil
-            }
-            suite.expect(!ruleKeys.isEmpty && unobserved.isEmpty,
-                   "\(surface) redraws its result when a rule changes: \(ruleKeys), unobserved \(unobserved)")
-        }
-
-        // Rules are stored as a difference from the built-in tables, never as
-        // a copy of them, so names a later version adds still reach someone
-        // who has already edited their rules.
-        let keptUTM = URLCleaning.rules(globalNames: nil, siteNames: nil, disabledNames: "|utm_*")
-        expectEqual(URLCleaning.clean("https://example.com/?utm_source=news&fbclid=abc&id=1",
-                                      rules: keptUTM)?.url ?? "",
-                    "https://example.com/?utm_source=news&id=1",
-                    "switching the utm row off keeps every utm name and leaves the rest cleaning")
-        let keptShareToken = URLCleaning.rules(globalNames: nil, siteNames: nil,
-                                               disabledNames: "youtube.com|si")
-        expectEqual(URLCleaning.clean("https://www.youtube.com/watch?v=1&si=x&feature=share",
-                                      rules: keptShareToken)?.url ?? "",
-                    "https://www.youtube.com/watch?v=1&si=x",
-                    "a switched off site name stays in the link while its siblings still go")
-        let addedSiteRule = URLCleaning.rules(globalNames: nil, siteNames: "weibo.com|sudaref",
-                                              disabledNames: nil)
-        expectEqual(URLCleaning.clean("https://weibo.com/a?sudaref=x&id=1", rules: addedSiteRule)?.url ?? "",
-                    "https://weibo.com/a?id=1",
-                    "a name added to one site cleans that site")
-        expectEqual(URLCleaning.clean("https://example.com/?sudaref=x", rules: addedSiteRule)?.url ?? "",
-                    "https://example.com/?sudaref=x",
-                    "a name added to one site never reaches another")
-        suite.expect(URLCleaning.clean("https://example.com/?utm_source=a&fbclid=b&id=1")?.removed
-                == ["utm_source", "fbclid"],
-               "cleaning answers with the names it took out, in the order the link carried them")
-        suite.expect(URLCleaning.outcome(for: nil, input: "nope") == .notAURL,
-               "text that is not a link reads as no URL")
-        let paddedLink = " https://example.com/?id=1 "
-        suite.expect(URLCleaning.outcome(for: URLCleaning.clean(paddedLink), input: paddedLink) == .unchanged,
-               "trimming alone does not count as a clean")
-
-        let editedRules = URLCleaning.rules(globalNames: "ref", siteNames: "weibo.com|sudaref",
-                                            disabledNames: "|fbclid")
-        let ruleGroups = URLCleaning.ruleGroups(rules: editedRules)
-        suite.expect(ruleGroups.first?.site == URLCleaning.allSites,
-               "the rules that apply everywhere lead the list")
-        suite.expect(ruleGroups.first?.entries.first?.name == URLCleaning.utmWildcard,
-               "one row stands for every utm name")
-        suite.expect(ruleGroups.first?.entries.allSatisfy {
-            $0.name == URLCleaning.utmWildcard || !$0.name.hasPrefix("utm_")
-        } == true, "the utm names that row already covers are not listed again")
-        suite.expect(ruleGroups.first?.entries.contains { $0.name == "fbclid" && !$0.isEnabled } == true,
-               "a switched off built-in stays listed so it can be switched back on")
-        suite.expect(ruleGroups.first?.entries.contains { $0.name == "ref" && !$0.isBuiltIn } == true,
-               "names the user added share the list with the built-in ones")
-        suite.expect(ruleGroups.contains { $0.site == "weibo.com" },
-               "a site the user added gets a row of its own")
-        suite.expect(ruleGroups.contains { $0.site == "youtube.com" },
-               "every built-in site is listed")
-        expectEqual(URLCleaning.clean("https://www.xiaohongshu.com/?shareRedId=a&exSource=b&id=1")?.url ?? "",
-                    "https://www.xiaohongshu.com/?id=1",
-                    "a built-in name spelled in mixed case by the site is still removed")
-        let upperCaseBuiltIns = URLCleaning.ruleGroups(rules: .none)
-            .flatMap(\.entries).map(\.name).filter { $0 != $0.lowercased() }
-        suite.expect(upperCaseBuiltIns.isEmpty,
-               "built-in names are lowercase, since matching and switched off names are: \(upperCaseBuiltIns)")
-        let siteSwitch = URLCleanerSiteSwitchHost()
-        siteSwitch.siteNames = "weibo.com|sudaref"
-        siteSwitch.disabledNames = "youtube.com|si"
-        func switchedRules() -> URLCleaning.Rules {
-            URLCleaning.rules(globalNames: siteSwitch.globalNames, siteNames: siteSwitch.siteNames,
-                              disabledNames: siteSwitch.disabledNames)
-        }
-        func switchedGroup(_ site: String) -> URLCleaning.RuleGroup? {
-            URLCleaning.ruleGroups(rules: switchedRules()).first { $0.site == site }
-        }
-        let youtubeLink = "https://www.youtube.com/watch?v=a&si=x&feature=y"
-        for site in ["weibo.com", "youtube.com"] {
-            switchedGroup(site).map { siteSwitch.setSite($0, enabled: false) }
-        }
-        suite.expect(switchedGroup("weibo.com")?.entries.map(\.name) == ["sudaref"]
-                && switchedGroup("weibo.com")?.enabledCount == 0
-                && URLCleaning.clean("https://weibo.com/a?sudaref=x", rules: switchedRules())?.removed == [],
-               "switching a site off keeps the name the user added to it, switched off")
-        suite.expect(switchedGroup("youtube.com")?.enabledCount == 0
-                && URLCleaning.clean(youtubeLink, rules: switchedRules())?.removed == [],
-               "switching a built-in site off switches off every built-in name: \(siteSwitch.disabledNames)")
-        for site in ["weibo.com", "youtube.com"] {
-            switchedGroup(site).map { siteSwitch.setSite($0, enabled: true) }
-        }
-        let youtubeAllOn = switchedGroup("youtube.com")
-            .map { !$0.entries.isEmpty && $0.enabledCount == $0.entries.count } ?? false
-        suite.expect(siteSwitch.disabledNames.isEmpty && youtubeAllOn
-                && URLCleaning.clean("https://weibo.com/a?sudaref=x", rules: switchedRules())?.removed == ["sudaref"]
-                && URLCleaning.clean(youtubeLink, rules: switchedRules())?.removed == ["si", "feature"],
-               "switching a site back on turns on every name it lists, one off before included: \(siteSwitch.disabledNames)")
-        // A name deleted while its row is off goes from the switched off
-        // names too, or adding it again later would bring it back off.
-        siteSwitch.globalNames = "keep"
-        for site in ["weibo.com", URLCleaning.allSites] {
-            switchedGroup(site).map { siteSwitch.setSite($0, enabled: false) }
-        }
-        siteSwitch.remove("sudaref", from: "weibo.com")
-        siteSwitch.remove("keep", from: URLCleaning.allSites)
-        let leftOff = URLCleaning.tokens(from: siteSwitch.disabledNames)
-        suite.expect(siteSwitch.siteNames.isEmpty && siteSwitch.globalNames.isEmpty
-                && leftOff["weibo.com"] == nil && leftOff[URLCleaning.allSites]?.contains("keep") != true,
-               "deleting a name the user added drops it from the switched off names too: \(siteSwitch.disabledNames)")
-        expectEqual(URLCleaning.siteKey(from: " https://WWW.Weibo.com/path?x=1 ") ?? "",
-                    "weibo.com", "the site field takes a pasted link and keeps the host")
-        expectEqual(URLCleaning.siteKey(from: "https://user@Shop.Example.com:8080/x") ?? "",
-                    "shop.example.com", "a pasted link's port and login do not become part of the host key")
-        let siteInputs: [(input: String, host: String, link: String)] = [
-            ("shop.example.com", "shop.example.com", "https://shop.example.com/x"),
-            ("shop.example.com:8080", "shop.example.com", "https://shop.example.com:8080/x"),
-            ("https://shop.example.com:8080/x?ref=a#part", "shop.example.com",
-             "https://shop.example.com:8080/x"),
-            ("https://user@shop.example.com/x", "shop.example.com", "https://user@shop.example.com/x"),
-            (" https://user:pass@WWW.Shop.Example.com:8080/x ", "shop.example.com",
-             "https://user:pass@WWW.Shop.Example.com:8080/x"),
-            ("https://192.0.2.1:8080/x", "192.0.2.1", "https://192.0.2.1:8080/x"),
-            ("[::ffff:192.0.2.1]", "[::ffff:192.0.2.1]", "https://[::ffff:192.0.2.1]/x"),
-            ("https://[::ffff:192.0.2.1]/x", "[::ffff:192.0.2.1]", "https://[::ffff:192.0.2.1]/x"),
-            ("https://user:pass@[2001:db8::192.0.2.1]:8080/x", "[2001:db8::192.0.2.1]",
-             "https://user:pass@[2001:db8::192.0.2.1]:8080/x"),
-        ]
-        for entry in siteInputs {
-            let site = URLCleanerSiteSwitchHost()
-            site.siteDraft = entry.input
-            site.siteParameterDraft = " Ref "
-            site.addSite()
-            expectEqual(site.siteNames, "\(entry.host)|ref", "site creation stores only the host from \(entry.input)")
-            suite.expect(site.siteDraft.isEmpty && site.siteParameterDraft.isEmpty,
-                         "successful site creation clears both drafts")
-            let restored = URLCleaning.rules(globalNames: site.globalNames, siteNames: site.siteNames,
-                                             disabledNames: site.disabledNames)
-            let link = entry.link + "?ref=campaign&id=42#section"
-            expectEqual(URLCleaning.clean(link, rules: restored)?.url ?? "", entry.link + "?id=42#section",
-                        "the stored rule cleans its host and preserves login, port, path and fragment")
-            let otherSite = "https://unrelated.example/?ref=campaign&id=42"
-            expectEqual(URLCleaning.clean(otherSite, rules: restored)?.url ?? "", otherSite,
-                        "a saved site rule does not reach an unrelated host")
-            if let group = URLCleaning.ruleGroups(rules: restored).first(where: { $0.site == entry.host }) {
-                site.setSite(group, enabled: false)
-                let disabled = URLCleaning.rules(globalNames: site.globalNames, siteNames: site.siteNames,
-                                                 disabledNames: site.disabledNames)
-                expectEqual(URLCleaning.clean(link, rules: disabled)?.url ?? "", link,
-                            "a disabled stored site rule preserves the original link")
-            } else {
-                suite.expect(false, "the saved site rule has a group")
-            }
-        }
-        for invalidSite in ["not a host", ".example.com", "https://user@:8080/x", "example.com|ref"] {
-            let site = URLCleanerSiteSwitchHost()
-            site.siteDraft = invalidSite
-            site.siteParameterDraft = "ref"
-            site.addSite()
-            suite.expect(site.siteNames.isEmpty && site.siteDraft == invalidSite,
-                         "invalid site creation keeps its draft and stores no rule")
-        }
-        suite.expect(URLCleaning.siteKey(from: "not a host") == nil,
-               "text that is not a host is refused rather than stored")
-        expectEqual(URLCleaning.parameterName(from: " Ref ") ?? "", "ref",
-                    "a parameter name is trimmed and lowercased")
-        suite.expect(URLCleaning.parameterName(from: "a=b") == nil,
-               "a name a query cannot carry as one parameter is refused")
-        suite.expect(URLCleaning.tokens(from: "youtube.com|si, |ref") == ["youtube.com": ["si"], "": ["ref"]],
-               "stored tokens read back as site and global names")
-        expectEqual(URLCleaning.storageValue(forTokens: URLCleaning.tokens(from: "youtube.com|si, |ref")),
-                    "|ref,youtube.com|si", "tokens are stored in a stable order")
-
-        suite.expect([DefaultsKey.urlCleanerCustomParameters,
-                DefaultsKey.urlCleanerSiteParameters,
-                DefaultsKey.urlCleanerDisabledParameters].allSatisfy {
-                    Defaults.registeredDefaults[$0] as? String == ""
-                        && SettingsBackupSupport.exportKeys().contains($0)
-                },
-               "URL cleaner rules start empty and travel in Settings backups")
-        suite.expect(URLCleaning.clean("not a url") == nil,
-               "URL cleaner rejects plain text")
-        expectEqual(URLCleaning.clean("https://www.bilibili.com/video/BV1TY8J67EUB/?spm_id_from=333.1007.tianma.1-1-1.click&vd_source=3b2eea5")?.url ?? "",
-                    "https://www.bilibili.com/video/BV1TY8J67EUB/",
-                    "URL cleaner strips Bilibili share tracking")
-        expectEqual(URLCleaning.clean("https://www.bilibili.com/video/BV1xx411c7mD/?p=3&t=90&vd_source=abc")?.url ?? "",
-                    "https://www.bilibili.com/video/BV1xx411c7mD/?p=3&t=90",
-                    "URL cleaner keeps the Bilibili part number and playback position")
-        expectEqual(URLCleaning.clean("https://search.bilibili.com/all?keyword=swift&from_source=webtop_search")?.url ?? "",
-                    "https://search.bilibili.com/all?keyword=swift",
-                    "URL cleaner keeps the Bilibili search keyword")
-        expectEqual(URLCleaning.clean("https://youtu.be/TImSMeurR84?si=Xq1&t=42")?.url ?? "",
-                    "https://youtu.be/TImSMeurR84?t=42",
-                    "URL cleaner strips the YouTube share token and keeps the timestamp")
-        expectEqual(URLCleaning.clean("https://www.youtube.com/watch?v=TImSMeurR84")?.url ?? "",
-                    "https://www.youtube.com/watch?v=TImSMeurR84",
-                    "URL cleaner leaves a bare YouTube watch link alone")
-        expectEqual(URLCleaning.clean("https://x.com/user/status/1?s=20&t=abc")?.url ?? "",
-                    "https://x.com/user/status/1",
-                    "URL cleaner strips X share tracking")
-        expectEqual(URLCleaning.clean("https://example.com/?si=keep&t=keep&s=keep")?.url ?? "",
-                    "https://example.com/?si=keep&t=keep&s=keep",
-                    "site rules never leak onto other hosts")
-        expectEqual(URLCleaning.clean("https://open.spotify.com/track/abc?si=xyz")?.url ?? "",
-                    "https://open.spotify.com/track/abc",
-                    "site rules match subdomains")
-        expectEqual(URLCleaning.clean("https://www.reddit.com/r/swift/comments/abc/?%24deep_link=true&%243p=x&share_id=y&sort=new")?.url ?? "",
-                    "https://www.reddit.com/r/swift/comments/abc/?sort=new",
-                    "URL cleaner strips Reddit's deep-link tracking in either spelling")
-
-        // MARK: URL cleaning is a pure deletion
-
-        // Cleaning a link is only allowed to take parameters out of it. The
-        // query is therefore filtered while it is still percent-encoded and
-        // the survivors are put back byte for byte. Decoding them and writing
-        // them back through `queryItems` re-encodes with a much wider allowed
-        // set, so the cleaner respells a value it was never asked to touch —
-        // and on a link with nothing to remove it respells the whole query
-        // and then reports a clean.
-        let wrappedLink = "https://example.com/?redirect=https%3A%2F%2Fexample.org%2F%3Futm_source%3Dkeepme%26z%3D9&gclid=1"
-        let wrappedClean = URLCleaning.clean(wrappedLink)
-        expectEqual(wrappedClean?.url ?? "",
-                    "https://example.com/?redirect=https%3A%2F%2Fexample.org%2F%3Futm_source%3Dkeepme%26z%3D9",
-                    "cleaning a wrapper link takes the tracker out and leaves the wrapped target encoded")
-        suite.expect(wrappedClean?.removed == ["gclid"],
-               "a wrapper link reports only the tracker it really removed")
-        // A link with nothing to remove must come back identical, or the
-        // clipboard poll replaces the user's copy with a different, wrong one
-        // and the UI calls it a clean.
-        let nothingToRemove = "https://example.com/url?q=https%3A%2F%2Fexample.com%2Fpage%3Fa%3D1%26utm_source%3Dnews&sa=U"
-        suite.expect(URLCleaning.clean(nothingToRemove)?.url == nothingToRemove
-               && URLCleaning.outcome(for: URLCleaning.clean(nothingToRemove), input: nothingToRemove) == .unchanged,
-               "a link with no tracked parameter is returned byte for byte and reads as unchanged")
-        for untouched in [
-            "https://example.com/",
-            "https://example.com/?",
-            "https://example.com/path?a=1&a=2",
-            "https://example.com/?q=a+b&r=%5B%5D&s=%20x",
-            "https://user:pw@example.com:8443/p?id=1",
-            "https://[::1]:8443/p?id=1",
-        ] {
-            suite.expect(URLCleaning.clean(untouched)?.url == untouched,
-                   "a link with no tracked parameter is never re-encoded, reordered or normalised: \(untouched)")
-        }
-        expectEqual(URLCleaning.clean("https://example.com/?flag&utm_medium&utm_source=news&id=1")?.url ?? "",
-                    "https://example.com/?flag&id=1",
-                    "a pair with no equals sign is judged by its whole text and a valueless tracker still goes")
-        expectEqual(URLCleaning.clean("https://example.com/?%75tm_source=news&id=1")?.url ?? "",
-                    "https://example.com/?id=1",
-                    "a tracker name spelled percent-encoded is decoded before it is matched")
-        suite.expect(URLCleaning.clean("https://example.com/?utm_source=a&fbclid=b&utm_source=c")?.removed
-                == ["utm_source", "fbclid"],
-               "a name repeated in one link is still reported once")
-
-        let unicodeURL = "https://éxample.com/cafe\u{0301}?x=%2f&q=é#re\u{0301}sume\u{0301}"
-        let unchangedUnicode = URLCleaning.clean(unicodeURL)
-        suite.expect(unchangedUnicode?.url.utf8.elementsEqual(unicodeURL.utf8) == true
-               && unchangedUnicode?.removed.isEmpty == true,
-               "a no-op preserves Unicode spelling and existing escapes byte for byte")
-        let preservedURLCases = [
-            ("https://example.com/p?x=%2f&q=é&utm_source=x", "https://example.com/p?x=%2f&q=é"),
-            ("https://éxample.com/cafe\u{0301}?x=%2f&utm_source=x#re\u{0301}sume\u{0301}",
-             "https://éxample.com/cafe\u{0301}?x=%2f#re\u{0301}sume\u{0301}"),
-            ("https://example.com/p?utm_source=x&\u{0301}id=1", "https://example.com/p?\u{0301}id=1"),
-            ("https://example.com/p?fbclid=\u{0301}x&id=1", "https://example.com/p?id=1"),
-            ("https://example.com/p?\u{0301}id=1&utm_source=x", "https://example.com/p?\u{0301}id=1"),
-            ("https://example.com/p?utm_source=x#\u{0301}keep?utm_medium=y", "https://example.com/p#\u{0301}keep?utm_medium=y"),
-            ("https://example.com/p?utm_source=x#", "https://example.com/p#"),
-            ("https://example.com/p?utm_source=x&", "https://example.com/p?"),
-            ("https://example.com/p?&utm_source=x&&id=%26%3D%3F%23", "https://example.com/p?&&id=%26%3D%3F%23"),
-            ("https://example.com/p#fragment?utm_source=x", "https://example.com/p#fragment?utm_source=x"),
-        ]
-        for (input, expected) in preservedURLCases {
-            suite.expect(URLCleaning.clean(input)?.url.utf8.elementsEqual(expected.utf8) == true,
-                   "cleaning preserves every surviving byte, including delimiters beside combining marks: \(input)")
-        }
-        for separator in ["\n", "\r\n", "\t", " ", "\u{00A0}"] {
-            suite.expect(URLCleaning.clean("https://a.example/x?utm_source=x\(separator)https://b.example/y") == nil,
-                   "automatic URL cleaning cannot discard a second link from a separated text copy")
-        }
-
-        suite.expect(URLCleaning.canRewritePasteboard(types: [
-            "public.utf8-plain-text", "public.url", "public.url-name",
-            "NSStringPboardType", "NSURLPboardType",
-        ]), "a plain link copy can be rewritten")
-        suite.expect(!URLCleaning.canRewritePasteboard(types: []),
-               "an empty pasteboard is left alone")
-        suite.expect(URLCleaning.canRewritePasteboard(types: [
-            "public.utf8-plain-text", "public.html", "public.rtf", "com.apple.flat-rtfd",
-            "public.utf16-external-plain-text",
-        ]), "formatted copies of the same link are dropped by the rewrite, not protected")
-        suite.expect(URLCleaning.canRewritePasteboard(types: [
-            "public.utf8-plain-text", "public.url", "org.chromium.source-url",
-            "org.chromium.web-custom-data", "com.apple.WebKit.custom-pasteboard-data",
-            "dyn.ah62d4rv4gu8y6y4grf0gn5xbrzw1gydcr7u1e3cytf2gn",
-        ]), "a browser's or a messaging app's private notes about the copy do not block the rewrite")
-        suite.expect(URLCleaning.canRewritePasteboard(types: [
-            "public.utf8-plain-text", "public.url", "com.apple.linkpresentation.metadata",
-        ]), "Safari's rich-link metadata can be rewritten with the link")
-        suite.expect(!URLCleaning.canRewritePasteboard(types: [
-            "public.utf8-plain-text", "public.url", "public.tiff", "public.png",
-        ]), "a copied picture with its source link as text is left alone")
-        suite.expect(!URLCleaning.canRewritePasteboard(types: [
-            "public.utf8-plain-text", "public.file-url", "NSFilenamesPboardType",
-        ]) && !URLCleaning.canRewritePasteboard(types: [
-            "public.utf8-plain-text", "NSFilenamesPboardType",
-        ]) && !URLCleaning.canRewritePasteboard(types: [
-            "public.utf8-plain-text", "com.apple.pasteboard.promised-file-url",
-            "com.apple.pasteboard.promised-file-content-type",
-        ]), "a copied or promised file is left alone")
-        suite.expect(!URLCleaning.canRewritePasteboard(types: [
-            "public.utf8-plain-text", "com.adobe.pdf",
-        ]) && !URLCleaning.canRewritePasteboard(types: [
-            "public.utf8-plain-text", "public.mpeg-4",
-        ]) && !URLCleaning.canRewritePasteboard(types: [
-            "public.utf8-plain-text", "com.apple.webarchive",
-        ]), "a document, a movie or a web archive next to the text is left alone")
-        suite.expect(!URLCleaning.canRewritePasteboard(types: [
-            "public.utf8-plain-text", "org.nspasteboard.ConcealedType",
-        ]) && !URLCleaning.canRewritePasteboard(types: [
-            "public.utf8-plain-text", "org.nspasteboard.TransientType",
-        ]), "a concealed or transient copy is never rewritten")
-
-        // Automatic cleaning replaces the whole copy, so it only does so when
-        // the copy is this one link and is still on the pasteboard.
-        let pollLink = "https://x.com/a/status/1?s=20&t=x"
-        let chromiumTypes = ["public.html", "Apple HTML pasteboard type", "public.utf8-plain-text",
-                             "NSStringPboardType", "org.chromium.internal.source-rfh-token",
-                             "org.chromium.source-url"]
-        for (types, items, html, copiedDuringRead, expected, copy) in [
-            (["public.utf8-plain-text"], 1, "", false, true, "a plain link"),
-            (["public.utf8-plain-text"], 2, "", false, false, "two copied items"),
-            (["public.utf8-plain-text"], 1, "", true, false, "a link another app replaced during the read"),
-            (chromiumTypes, 1, "<meta charset='utf-8'><a href=\"\(pollLink.replacingOccurrences(of: "&", with: "&amp;"))\">"
-                + "\(pollLink)</a>", false, true, "a Chromium app's link copy (#1643)"),
-            (chromiumTypes, 1, "<meta charset='utf-8'><img src=\"\(pollLink)\">", false, false,
-             "a picture's markup with its address as the text"),
-            (chromiumTypes, 1, "<a href=\"\(pollLink)\">A post</a>", false, true, "a link under a title"),
-            (chromiumTypes, 1, "<a href=\"https://example.com/\">\(pollLink)</a>", false, false,
-             "a link pointing somewhere else"),
-        ] {
-            let pasteboard = URLCleanerPollHost.Pasteboard.general
-            pasteboard.types = types.map(URLCleanerPollHost.Kind.init(rawValue:))
-            pasteboard.items = items
-            pasteboard.text = pollLink
-            pasteboard.html = html
-            pasteboard.copiedDuringRead = copiedDuringRead
-            URLCleanerPollHost.written = []
-            _ = URLCleanerPollHost.pollPasteboard(sinceChangeCount: 0, token: URLCleanerPollHost.PollToken())
-            suite.expect(URLCleanerPollHost.written == (expected ? ["https://x.com/a/status/1"] : []),
-                   "automatic cleaning \(expected ? "rewrites" : "leaves alone") \(copy): \(URLCleanerPollHost.written)")
-        }
-        // The app a copy names as its source stays named after the rewrite,
-        // so the clipboard history does not credit the link to the app in front.
-        do {
-            let pasteboard = URLCleanerPollHost.Pasteboard.general
-            pasteboard.types = ["public.utf8-plain-text", "org.nspasteboard.source"].map(URLCleanerPollHost.Kind.init(rawValue:))
-            pasteboard.items = 1
-            pasteboard.text = pollLink
-            pasteboard.html = ""
-            pasteboard.copiedDuringRead = false
-            pasteboard.source = "com.example.writer"
-            URLCleanerPollHost.written = []
-            URLCleanerPollHost.writtenSources = []
-            URLCleanerPollHost.writtenRemote = []
-            _ = URLCleanerPollHost.pollPasteboard(sinceChangeCount: 0, token: URLCleanerPollHost.PollToken())
-            pasteboard.source = nil
-            suite.expect(URLCleanerPollHost.written == ["https://x.com/a/status/1"]
-                    && URLCleanerPollHost.writtenSources == ["com.example.writer"]
-                    && URLCleanerPollHost.writtenRemote == [false],
-                   "automatic cleaning keeps the source a copy names: \(URLCleanerPollHost.writtenSources)")
-            pasteboard.types = ["public.utf8-plain-text", "com.apple.is-remote-clipboard"].map(URLCleanerPollHost.Kind.init(rawValue:))
-            URLCleanerPollHost.written = []
-            URLCleanerPollHost.writtenRemote = []
-            _ = URLCleanerPollHost.pollPasteboard(sinceChangeCount: 0, token: URLCleanerPollHost.PollToken())
-            suite.expect(URLCleanerPollHost.written == ["https://x.com/a/status/1"] && URLCleanerPollHost.writtenRemote == [true],
-                   "automatic cleaning keeps a copy from another device marked as one: \(URLCleanerPollHost.writtenRemote)")
-        }
-
-        // A title over the same link, an href the browser resolved and a
-        // head or text that is never shown all go with the rewrite. Shown
-        // text beyond the link, or far more markup than a link copy needs,
-        // stays.
-        let escapedPollLink = pollLink.replacingOccurrences(of: "&", with: "&amp;")
-        let unicodeLink = "https://example.com/wiki/北京?utm_source=x"
-        let titledCopy = "<meta charset='utf-8'><a href=\"\(escapedPollLink)\">Example page title</a>"
-        let encodedCopy = "<meta charset='utf-8'><a href=\"https://example.com/wiki/%E5%8C%97%E4%BA%AC?utm_source=x\">"
-            + "\(unicodeLink)</a>"
-        let documentCopy = "<!DOCTYPE HTML PUBLIC \"-//W3C//DTD HTML 4.0//EN\">\n<html><head>"
-            + "<meta charset=\"utf-8\" /><title>Untitled</title><style type=\"text/css\">\n"
-            + "p, li { white-space: pre-wrap; }\n</style></head><body style=\" font-family:sans-serif;\">\n"
-            + "<!--StartFragment-->\(escapedPollLink)<!--EndFragment--></body></html>"
-        let linkedDocumentCopy = "<html><head><meta http-equiv=Content-Type content=\"text/html; charset=utf-8\">"
-            + "<link rel=File-List href=\"file:///tmp/clip_filelist.xml\"><style>p { margin: 0; }</style></head>"
-            + "<body><p><a href=\"\(escapedPollLink)\">\(escapedPollLink)</a></p></body></html>"
-        let oversizedCopy = "<meta charset='utf-8'><a href=\"\(escapedPollLink)\">\(escapedPollLink)</a>"
-            + String(repeating: " ", count: 64 * 1024)
-        let markupCases: [(text: String, html: String, expected: [String], copy: String)] = [
-            (pollLink, titledCopy, ["https://x.com/a/status/1"],
-             "an address bar copy that writes the link under the page title"),
-            (unicodeLink, encodedCopy, ["https://example.com/wiki/北京"],
-             "a selected non-ASCII link whose href the browser wrote percent-encoded"),
-            ("https://example.com?utm_source=x",
-             "<a href=\"https://example.com/?utm_source=x\">https://example.com?utm_source=x</a>",
-             ["https://example.com"], "a link to a site's root whose href the browser wrote with a slash"),
-            (pollLink, documentCopy, ["https://x.com/a/status/1"],
-             "a rich-text document copy whose title and stylesheet are not shown"),
-            (pollLink, "<meta charset='utf-8'><style>p { margin: 0; }</style><p>\(escapedPollLink)</p>",
-             ["https://x.com/a/status/1"], "a fragment copy that carries its stylesheet"),
-            (pollLink, linkedDocumentCopy, ["https://x.com/a/status/1"],
-             "a document copy whose head links the document's own files"),
-            (pollLink, "<meta charset='utf-8'><p>Read this: \(escapedPollLink)</p>", [],
-             "formatted text that shows more than the link"),
-            (pollLink, oversizedCopy, [], "a link copy with far more markup than one link needs"),
-            ("https://example.com/Report?utm_source=x", "<a href='https://example.com/report?utm_source=x'>Report</a>", [],
-             "an anchor whose case-sensitive path points to a different resource"),
-            ("https://example.com/?id=ABC&utm_source=x", "<a href='https://example.com/?id=abc&amp;utm_source=x'>Report</a>", [],
-             "an anchor whose case-sensitive query points to a different resource"),
-            ("https://EXAMPLE.com/Report?utm_source=x", "<a href='https://example.com/Report?utm_source=x'>Report</a>",
-             ["https://EXAMPLE.com/Report"], "an anchor whose host differs only in case"),
-            (pollLink, "<a href = 'https://example.com/'>\(escapedPollLink)</a>", [],
-             "an anchor with whitespace around its different destination"),
-            (pollLink, "<a href=\(escapedPollLink)>A post</a>", ["https://x.com/a/status/1"],
-             "a link under a title with an unquoted destination"),
-            ("https://example.com/Report?utm_source=x", "<p>https://example.com/report?utm_source=x</p>", [],
-             "formatted text that spells a case-sensitive path differently"),
-        ]
-        for markupCase in markupCases {
-            let pasteboard = URLCleanerPollHost.Pasteboard.general
-            pasteboard.types = chromiumTypes.map(URLCleanerPollHost.Kind.init(rawValue:))
-            pasteboard.items = 1
-            pasteboard.text = markupCase.text
-            pasteboard.html = markupCase.html
-            pasteboard.copiedDuringRead = false
-            URLCleanerPollHost.written = []
-            _ = URLCleanerPollHost.pollPasteboard(sinceChangeCount: 0, token: URLCleanerPollHost.PollToken())
-            suite.expect(URLCleanerPollHost.written == markupCase.expected,
-                   "automatic cleaning \(markupCase.expected.isEmpty ? "leaves alone" : "rewrites") "
-                       + "\(markupCase.copy): \(URLCleanerPollHost.written)")
-        }
-
-        // Delayed providers can answer after the cleaner was turned off or
-        // another app copied. The final source read must not reopen that race.
-        for scenario in ["copy during source", "cancel during source", "cancel during HTML",
-                         "copy during metadata", "cancel during metadata"] {
-            let pasteboard = URLCleanerPollHost.Pasteboard.general
-            let token = URLCleanerPollHost.PollToken()
-            pasteboard.types = (chromiumTypes + [URLCleanerLinkMetadata.pasteboardType.rawValue])
-                .map(URLCleanerPollHost.Kind.init(rawValue:))
-            pasteboard.items = 1
-            pasteboard.text = pollLink
-            pasteboard.html = titledCopy
-            pasteboard.copiedDuringRead = false
-            pasteboard.onRead = { kind in
-                if scenario == "copy during source", kind == .source { pasteboard.changeCount += 1 }
-                if scenario == "cancel during source", kind == .source { token.isCancelled = true }
-                if scenario == "cancel during HTML", kind == .html { token.isCancelled = true }
-                if scenario == "copy during metadata", kind == URLCleanerLinkMetadata.pasteboardType {
-                    pasteboard.changeCount += 1
-                }
-                if scenario == "cancel during metadata", kind == URLCleanerLinkMetadata.pasteboardType {
-                    token.isCancelled = true
-                }
-            }
-            URLCleanerPollHost.written = []
-            _ = URLCleanerPollHost.pollPasteboard(sinceChangeCount: 0, token: token)
-            pasteboard.onRead = nil
-            suite.expect(URLCleanerPollHost.written.isEmpty,
-                         "automatic cleaning preserves the clipboard after \(scenario)")
-        }
-
-        // The poll holds the queue every pasteboard feature shares, so markup
-        // that never closes is read once rather than once per '<'.
-        for (html, shape) in [(String(repeating: "<", count: 20_000), "unclosed tags"),
-                              (String(repeating: "<style>", count: 6_000), "unclosed elements")] {
-            let pasteboard = URLCleanerPollHost.Pasteboard.general
-            pasteboard.types = chromiumTypes.map(URLCleanerPollHost.Kind.init(rawValue:))
-            pasteboard.items = 1
-            pasteboard.text = pollLink
-            pasteboard.html = html
-            pasteboard.copiedDuringRead = false
-            URLCleanerPollHost.written = []
-            let started = Date()
-            _ = URLCleanerPollHost.pollPasteboard(sinceChangeCount: 0, token: URLCleanerPollHost.PollToken())
-            let elapsed = Date().timeIntervalSince(started)
-            suite.expect(elapsed < 0.25, "automatic cleaning reads a copy of \(shape) in one pass: \(elapsed) s")
-        }
-
         // MARK: Homebrew command building and parsing
 
         let homebrewManagerSource = repository.source(
-            at: "Sources/Vorssaint/Services/Homebrew/HomebrewManager.swift")
+            at: "Sources/Brim/Services/Homebrew/HomebrewManager.swift")
         let homebrewRunStreaming = homebrewManagerSource.components(separatedBy: "func runStreaming(")
             .dropFirst().first?.components(separatedBy: "private func appendLog").first ?? ""
         suite.expect(homebrewRunStreaming.contains("brewSilenceTimeout")
@@ -906,7 +256,7 @@ enum RepositoryFeatureTests {
         // their own shell, leaving nothing behind (issue #598).
         do {
             let folder = FileManager.default.temporaryDirectory
-                .appendingPathComponent("vorssaint-terminal-script-\(UUID().uuidString)")
+                .appendingPathComponent("brim-terminal-script-\(UUID().uuidString)")
             try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             defer { try? FileManager.default.removeItem(at: folder) }
             // A stand-in login shell that writes down the arguments it was given.
@@ -1079,12 +429,12 @@ enum RepositoryFeatureTests {
                 && plainLogin.arguments.last == loginShell.arguments.last,
                "Homebrew's fallback asks for the same dump from a plain login shell")
         let resolvingEnvironment = HomebrewEnvironment.loginShellEnvironment(base: ["HOME": "/Users/test"])
-        suite.expect(HomebrewEnvironment.resolvingVariable == "VORSSAINT_RESOLVING_ENVIRONMENT"
-                && resolvingEnvironment == ["HOME": "/Users/test", "VORSSAINT_RESOLVING_ENVIRONMENT": "1"],
-               "Homebrew runs the login shell with VORSSAINT_RESOLVING_ENVIRONMENT=1 on top of the app's environment")
+        suite.expect(HomebrewEnvironment.resolvingVariable == "BRIM_RESOLVING_ENVIRONMENT"
+                && resolvingEnvironment == ["HOME": "/Users/test", "BRIM_RESOLVING_ENVIRONMENT": "1"],
+               "Homebrew runs the login shell with BRIM_RESOLVING_ENVIRONMENT=1 on top of the app's environment")
         // A real zsh reading startup files from a scratch ZDOTDIR, so the user's own are never touched.
         let zdotdir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("vorssaint-login-shell-\(UUID().uuidString)")
+            .appendingPathComponent("brim-login-shell-\(UUID().uuidString)")
         try? FileManager.default.createDirectory(at: zdotdir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: zdotdir) }
         func startupExports(zshrc: String) -> [String: String] {
@@ -1096,12 +446,12 @@ enum RepositoryFeatureTests {
                 baseEnvironment: ["HOME": zdotdir.path, "ZDOTDIR": zdotdir.path, "PATH": "/usr/bin:/bin"])
         }
         let zshrcExports = startupExports(zshrc: "export https_proxy=http://127.0.0.1:7890\n"
-                                          + "export HOMEBREW_SEEN_RESOLVING=$VORSSAINT_RESOLVING_ENVIRONMENT\n")
+                                          + "export HOMEBREW_SEEN_RESOLVING=$BRIM_RESOLVING_ENVIRONMENT\n")
         suite.expect(zshrcExports["HOMEBREW_API_DOMAIN"] == "https://mirror.example/api"
                 && zshrcExports["https_proxy"] == "http://127.0.0.1:7890",
                "Homebrew reads exports from both ~/.zprofile and ~/.zshrc, found \(zshrcExports.keys.sorted())")
         expectEqual(zshrcExports["HOMEBREW_SEEN_RESOLVING"] ?? "", "1",
-                    "Homebrew's login shell exposes VORSSAINT_RESOLVING_ENVIRONMENT to startup files")
+                    "Homebrew's login shell exposes BRIM_RESOLVING_ENVIRONMENT to startup files")
         // A multiplexer autostart that fails without a terminal and exits, or an exec into another shell.
         for takeover in ["multiplexer_autostart_failed_without_a_terminal=1; exit 0", "exec /bin/sh -c true"] {
             let fallbackExports = startupExports(zshrc: takeover + "\n")
@@ -1379,9 +729,8 @@ enum RepositoryFeatureTests {
         let oldBrewFolded = HomebrewDependencyGraph.fold(oldBrewPackages, installed: oldBrewPackages)
         suite.expect(oldBrewFolded.rows.count == 8 && oldBrewFolded.dependencies.isEmpty && oldBrewFolded.orphans.isEmpty,
                      "Homebrew keeps the flat list when brew does not report installed_on_request, found \(oldBrewFolded.rows.count)")
-        suite.expect(Defaults.registeredDefaults[DefaultsKey.homebrewGroupDependencies] as? Bool == true
-                     && SettingsBackupSupport.exportKeys().contains(DefaultsKey.homebrewGroupDependencies),
-                     "Homebrew grouping remains the default and the alternative layout travels with settings backups")
+        suite.expect(Defaults.registeredDefaults[DefaultsKey.homebrewGroupDependencies] as? Bool == true,
+                     "Homebrew grouping remains the default")
         let searchPackages = HomebrewParser.parseSearchOutput("sample-formula\nbad token\nsample-filter\nsample-tool\n",
                                                               kind: .formula,
                                                               installed: homebrewPackages)
@@ -1428,7 +777,7 @@ enum RepositoryFeatureTests {
         // decoded inside the preview's body, so every frame of an opacity
         // drag re-read it from disk; it is loaded once per chosen file now,
         // which is what a task is for.
-        let uiPrefix = "Sources/Vorssaint/UI/"
+        let uiPrefix = "Sources/Brim/UI/"
         let allUIFiles = repository.swiftPaths.filter { $0.hasPrefix(uiPrefix) }
         var decodingInBody: [String] = []
         for path in allUIFiles {
@@ -1484,7 +833,7 @@ enum RepositoryFeatureTests {
         // the shared dispatch pool. Once unrelated work had taken every worker
         // in that pool, not one operation started and the wait never returned,
         // taking the whole app with it (issue #971).
-        let appPrefix = "Sources/Vorssaint/"
+        let appPrefix = "Sources/Brim/"
         let appSources = repository.swiftPaths.filter {
             $0.hasPrefix(appPrefix) && !$0.contains(" 2")
         }
@@ -1528,25 +877,6 @@ enum RepositoryFeatureTests {
         suite.expect(!appSources.isEmpty && applicationRoleReads.isEmpty,
                "no application element is ever asked for its role: \(applicationRoleReads)")
 
-        // The snippet probe asks whatever app is in front while typing waits,
-        // so its questions share one deadline, and a spent one stops them: a
-        // zero timeout means the system default, which is seconds.
-        let readerLines = repository.lines(at: appPrefix + "Services/SelectedTextReader.swift")
-            .filter { !isCommentLine($0) }
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-        let focusedTextProbe = readerLines
-            .drop(while: { !$0.hasPrefix("func text(in range: NSRange)") })
-            .prefix(while: { !$0.hasPrefix("private static func limit(") })
-        suite.expect(readerLines.contains("guard left > 0 else { return false }")
-               && focusedTextProbe.filter { $0.contains("limit(") }.count == 5
-               && focusedTextProbe.filter { $0.contains("copyElement(") || $0.contains("copyValue(")
-                   || $0.contains("copyString(") }.count == 5
-               && focusedTextProbe.contains("guard textLength <= wholeValueLimit,")
-               && !focusedTextProbe.contains(where: {
-                   $0.contains("kAXRoleAttribute") || $0.contains("AXUIElementSetMessagingTimeout")
-               }),
-               "the focused text probe asks every question within one deadline, never a role, and copies only a short value whole")
-
         // A walk up kAXParent reaches an application element without naming it,
         // so every such walk must stop before asking that parent for its role.
         var unguardedParentWalks: [String] = []
@@ -1572,22 +902,9 @@ enum RepositoryFeatureTests {
             }
             if writes { availabilityWriters.insert((path as NSString).lastPathComponent) }
         }
-        suite.expect(availabilityWriters == ["FeatureRuntime.swift",
-                                       "FeaturePresets.swift",
-                                       "Defaults.swift"],
+        suite.expect(availabilityWriters == ["FeatureRuntime.swift", "FeaturePresets.swift"],
                "feature availability is written only where the hardware gate runs, "
                + "found \(availabilityWriters.sorted())")
-
-        // A saved shelf may only be read through the loader that distinguishes
-        // an unreadable or partial store from a valid empty one.
-        let rawShelfStoreDecoders = repository.swiftPaths.compactMap { path in
-            repository.source(at: path).contains("decode([ShelfPersistedItem]")
-                ? (path as NSString).lastPathComponent : nil
-        }
-        suite.expect(!repository.swiftPaths.isEmpty && rawShelfStoreDecoders.isEmpty,
-               "the saved shelf is read only through ShelfPersistenceSupport.load, "
-               + "found a bare decode in \(rawShelfStoreDecoders.sorted()) "
-               + "across \(repository.swiftPaths.count) scanned files")
 
         var bareActivationYields: [String] = []
         for path in repository.swiftPaths
@@ -1629,10 +946,8 @@ enum RepositoryFeatureTests {
         let localizationSourcePaths = repository.swiftPaths.filter { path in
             let folder = (path as NSString).deletingLastPathComponent
             let name = (path as NSString).lastPathComponent
-            return (folder == "Sources/Vorssaint/Core"
-                    || folder == "Sources/Vorssaint/Core/Localizations")
-                && (name.hasSuffix("Strings.swift") || name.hasPrefix("Strings+")
-                    || name == "Localization.swift")
+            return folder == "Sources/Brim/Core"
+                && (name.hasSuffix("Strings.swift") || name == "Localization.swift")
         }
         var typewriterMarks: [String] = []
         for path in localizationSourcePaths {
@@ -1648,44 +963,11 @@ enum RepositoryFeatureTests {
         suite.expect(typewriterMarks.isEmpty,
                "visible text curls its apostrophes (\(typewriterMarks.prefix(6).joined(separator: ", ")))")
 
-        // French double punctuation and guillemets use non-breaking spaces.
-        func frenchLines(_ path: String) -> ArraySlice<String> {
-            let lines = repository.lines(at: path)
-            guard !path.hasSuffix("Strings+French.swift") else { return lines[...] }
-            guard let start = lines.firstIndex(where: {
-                $0.trimmingCharacters(in: .whitespaces).hasPrefix("static let fr = ")
-            }) else { return [][...] }
-            let end = lines[(start + 1)...].firstIndex {
-                $0.trimmingCharacters(in: .whitespaces).hasPrefix("static let ")
-            } ?? lines.endIndex
-            return lines[start..<end]
-        }
-        let frenchSources = repository.swiftPaths.filter { path in
-            path == "Sources/Vorssaint/Core/Localizations/Strings+French.swift"
-                || ((path as NSString).deletingLastPathComponent == "Sources/Vorssaint/Core"
-                    && path.hasSuffix("Strings.swift"))
-        }
-        var breakingFrench: [String] = []
-        for path in frenchSources {
-            for line in frenchLines(path) {
-                guard !line.trimmingCharacters(in: .whitespaces).hasPrefix("//") else { continue }
-                guard let opening = line.firstIndex(of: "\""),
-                      let closing = line.lastIndex(of: "\""), opening < closing else { continue }
-                let body = String(line[line.index(after: opening)..<closing])
-                let breaks = [" ;", " :", " !", " ?", " \u{00BB}", "\u{00AB} "]
-                if breaks.contains(where: { body.contains($0) }) {
-                    breakingFrench.append((path as NSString).lastPathComponent)
-                }
-            }
-        }
-        suite.expect(breakingFrench.isEmpty,
-               "French keeps its punctuation on the line it belongs to (\(Set(breakingFrench).sorted().prefix(4).joined(separator: ", ")))")
-
-        let themeSource = repository.source(at: "Sources/Vorssaint/UI/Theme.swift")
+        let themeSource = repository.source(at: "Sources/Brim/UI/Theme.swift")
         let raisedReads = themeSource
             .components(separatedBy: "accessibilityDisplayShouldIncreaseContrast").count - 1
-        suite.expect(raisedReads == 2,
-               "both panel outlines answer raised contrast, and nothing else pretends to")
+        suite.expect(raisedReads == 1,
+               "the panel outline answers raised contrast, and nothing else pretends to")
 
         // Every formatted decimal explicitly chooses its locale. Long calls
         // may put that locale on either of the next two lines.
@@ -1707,7 +989,7 @@ enum RepositoryFeatureTests {
 
         // Purgeable space is queried only for writable volumes.
         let samplerCode = repository.lines(
-            at: "Sources/Vorssaint/Services/Metrics/DiskSampler.swift")
+            at: "Sources/Brim/Services/Metrics/DiskSampler.swift")
             .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
             .joined(separator: "\n")
         suite.expect(!samplerCode.isEmpty, "the disk sampler reads back for its shape check")
@@ -1719,8 +1001,7 @@ enum RepositoryFeatureTests {
         suite.expect(samplerCode.contains("guard !isReadOnly,"),
                "purgeable space is read only where there is something to purge")
 
-        // Only localized fields that reach String(format:) need matching
-        // placeholders in every language.
+        // Every Strings field that reaches String(format:) is a valid format.
         var formatFields: Set<String> = []
         for path in repository.swiftPaths {
             for piece in repository.source(at: path).components(separatedBy: "String(format:").dropFirst() {
@@ -1736,22 +1017,13 @@ enum RepositoryFeatureTests {
             }
         }
         suite.expect(formatFields.count > 10, "the format fields were found to compare (\(formatFields.count))")
-        var mismatched: [String] = []
-        for (language, strings) in LocalizationTests.languages where language != .enUS {
-            let mine = Mirror(reflecting: strings).children
-            let base = Mirror(reflecting: Strings.enUS).children
-            for (left, right) in zip(base, mine) {
-                guard let label = left.label, formatFields.contains(label),
-                      let english = left.value as? String,
-                      let other = right.value as? String else { continue }
-                if TestFormat.parse(english) == nil
-                    || TestFormat.parse(english)?.arguments != TestFormat.parse(other)?.arguments {
-                    mismatched.append("\(label)/\(language.rawValue)")
-                }
-            }
+        let invalidFormats = Mirror(reflecting: Strings.enUS).children.compactMap { child -> String? in
+            guard let label = child.label, formatFields.contains(label),
+                  let text = child.value as? String, TestFormat.parse(text) == nil else { return nil }
+            return label
         }
-        suite.expect(mismatched.isEmpty,
-               "every language fills a format the same way (\(mismatched.prefix(5).joined(separator: ", ")))")
+        suite.expect(invalidFormats.isEmpty,
+               "every format string parses (\(invalidFormats.prefix(5).joined(separator: ", ")))")
 
         // Every literal SF Symbol name resolves on the test system.
         var symbolNames: Set<String> = []
@@ -1762,7 +1034,7 @@ enum RepositoryFeatureTests {
                 if !name.isEmpty, !name.contains("\\") { symbolNames.insert(name) }
             }
         }
-        suite.expect(symbolNames.count > 80, "the symbol names were found (\(symbolNames.count))")
+        suite.expect(symbolNames.count > 50, "the symbol names were found (\(symbolNames.count))")
         var missingSymbols: [String] = []
         for name in symbolNames.sorted()
         where NSImage(systemSymbolName: name, accessibilityDescription: nil) == nil {
@@ -1798,7 +1070,6 @@ enum RepositoryFeatureTests {
             shippedNames.insert((file as NSString).deletingPathExtension)
             shippedNames.insert(file)
         }
-        shippedNames.insert("CHANGELOG")
         let absentResources = namedResources.filter { !shippedNames.contains($0) }.sorted()
         suite.expect(absentResources.isEmpty,
                "every file the app asks for by name is in the bundle (\(absentResources.joined(separator: ", ")))")
@@ -1848,27 +1119,6 @@ enum RepositoryFeatureTests {
         suite.expect(missingTools.isEmpty,
                "every system tool the app runs is where it expects (\(missingTools.joined(separator: ", ")))")
 
-        // User-file stores delete only paths whose ownership is established in
-        // the local scope immediately before removal.
-        var ungardedDeletes: [String] = []
-        let ownershipGuards = ["isShelfOwnedFile", "discardablePaths", "ownedPayloadURLs",
-                               "isRegularFile", "tempDir", "legacyDir", "root", "uuidString",
-                               "storeRoot", "contentsOfDirectory"]
-        for path in ["Sources/Vorssaint/Services/Shelf/ShelfService.swift",
-                     "Sources/Vorssaint/Services/QuickTools/RecentCaptureService.swift",
-                     "Sources/Vorssaint/Services/QuickTools/RecentCaptureStore.swift"] {
-            let lines = repository.lines(at: path)
-            suite.expect(!lines.isEmpty, "the store source reads back for its deletion check")
-            for (index, line) in lines.enumerated() where line.contains("removeItem(at:") {
-                let scope = lines[max(0, index - 10)...index].joined(separator: "\n")
-                if !ownershipGuards.contains(where: scope.contains) {
-                    ungardedDeletes.append("\((path as NSString).lastPathComponent):\(index + 1)")
-                }
-            }
-        }
-        suite.expect(ungardedDeletes.isEmpty,
-               "a file is deleted only after the app checks it owns it (\(ungardedDeletes.joined(separator: ", ")))")
-
         // MARK: Result
 
         // MARK: Every temp dir build.sh stages in is swept when the script ends
@@ -1915,75 +1165,18 @@ enum RepositoryFeatureTests {
                    "temp dir \(variable) is empty before the sweep is installed")
         }
 
-        // MARK: An identity-less build that installs creates its stable signing identity
-        // An ad-hoc signature changes hash on every build, so macOS orphans
-        // Accessibility and Screen Recording grants on each rebuild while
-        // System Settings keeps showing them as granted. build.sh therefore
-        // routes identity-less installs through Tools/setup-signing.sh before
-        // signing. The needle is the invocation at the start of a command
-        // line: the ad-hoc fallback's advice string also names the script, and
-        // must not satisfy this check.
-        let runsSigningSetup = buildScript.components(separatedBy: "\n").contains {
-            $0.range(of: #"^\s*(if\s+!?\s*)?\./Tools/setup-signing\.sh"#,
-                     options: .regularExpression) != nil
-        }
-        suite.expect(runsSigningSetup,
-               "an identity-less build that installs invokes Tools/setup-signing.sh itself")
-        // The guard is on the install, not on the variant: a plain --install
-        // replaces the bundle under the released id, so it strands the grants
-        // on the app people actually use. CI never passes --install.
-        let buildScriptCode = buildScript.components(separatedBy: "\n")
-            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("#") }
-        suite.expect(buildScriptCode.contains { $0.contains("(( DEV || INSTALL ))")
-                                            && $0.contains("developer_id_identity") },
-               "the signing setup guard covers every install, not only the Developer variant")
-        // The setup script must run against the stock /usr/bin/openssl, which
-        // is LibreSSL: it rejects OpenSSL 3's -legacy flag outright, and the
-        // script once died on exactly that with its stderr discarded. The
-        // portable spelling names the PBE algorithms instead of the flag.
-        let signingSetup = (try? String(contentsOfFile: "Tools/setup-signing.sh",
-                                         encoding: .utf8)) ?? ""
-        suite.expect(!signingSetup.isEmpty, "the signing setup script reads back for its shape check")
-        let signingSetupCode = signingSetup.components(separatedBy: "\n")
-            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("#") }
-            .joined(separator: "\n")
-        suite.expect(!signingSetupCode.contains("-legacy"),
-               "setup-signing.sh avoids the -legacy flag the stock LibreSSL openssl rejects")
-
-        // MARK: The stable identity is judged by whether codesign can sign with it
-        // A find-identity listing names certificates codesign then rejects, and
-        // -v excludes every self-signed one, so neither spelling may decide.
-        for (script, code, identity) in [("build.sh", buildScriptCode, "$LEGACY_IDENTITY"),
-                                         ("Tools/setup-signing.sh", signingSetupCode.components(separatedBy: "\n"),
-                                          "$IDENTITY")] {
-            suite.expect(!code.contains { $0.contains("find-identity") && $0.contains(identity) },
-                   "\(script) never decides the stable identity by a find-identity listing")
-            suite.expect(code.contains { $0.contains("cp /bin/echo") }
-                    && code.contains { $0.contains("--sign \"\(identity)\" \"$probe\"") },
-                   "\(script) asks codesign to sign a throwaway copy of /bin/echo with the stable identity")
-        }
+        // BrimForkTests checks the signing contract.
 
         // MARK: Uninstallation paths stay aligned across SelfUninstall and Tools/uninstall.sh
         let selfUninstallSource = repository.source(
-            at: "Sources/Vorssaint/Services/SelfUninstall.swift")
+            at: "Sources/Brim/Services/SelfUninstall.swift")
         let uninstallScriptSource = (try? String(contentsOfFile: "Tools/uninstall.sh",
                                                 encoding: .utf8)) ?? ""
         suite.expect(!selfUninstallSource.isEmpty && !uninstallScriptSource.isEmpty,
                "uninstall sources read back for uninstallation alignment check")
-        suite.expect(selfUninstallSource.contains("CleaningModeManager.shared.deactivateForSystemTeardown()"),
-               "permission reset removes the cleaning input tap synchronously")
-        let queryHabitSupportSource = repository.source(
-            at: "Sources/Vorssaint/Services/CommandBar/CommandBarSupport.swift")
-        let queryHabitServiceSource = repository.source(
-            at: "Sources/Vorssaint/Services/CommandBar/CommandBarService.swift")
-        suite.expect(!queryHabitSupportSource.isEmpty
-                && !queryHabitServiceSource.isEmpty
-                && !queryHabitSupportSource.contains("SecItem")
-                && !queryHabitSupportSource.contains("import Security")
-                && !selfUninstallSource.contains("removeInstallationKey")
-                && !uninstallScriptSource.contains("delete-generic-password")
-                && queryHabitServiceSource.contains("DefaultsKey.commandBarQueryHabits"),
-               "query learning persists locally without Keychain access")
+        suite.expect(!selfUninstallSource.contains("removeInstallationKey")
+                && !uninstallScriptSource.contains("delete-generic-password"),
+               "uninstalling touches no Keychain item")
         let requiredSubpaths = ["Library/Application Support", "Library/Caches", "Library/HTTPStorages"]
         for subpath in requiredSubpaths {
             suite.expect(selfUninstallSource.contains(subpath) && uninstallScriptSource.contains(subpath),
@@ -1991,6 +1184,18 @@ enum RepositoryFeatureTests {
         }
         suite.expect(uninstallScriptSource.contains("Library/Preferences/ByHost"),
                "script uninstall sweeps ByHost preferences")
+        // A key the app no longer writes or clears can only be stale: the
+        // removed Space order feature's recovery marker once made the script
+        // refuse to uninstall, every time, with nothing left to clear it.
+        let defaultsSource = repository.source(at: "Sources/Brim/Core/Defaults.swift")
+        let scriptKeys = uninstallScriptSource.components(separatedBy: "\n").compactMap { line -> String? in
+            guard let range = line.range(of: #"defaults read "$BUNDLE" "#) else { return nil }
+            return line[range.upperBound...].split(separator: " ").first.map(String.init)
+        }
+        suite.expect(!scriptKeys.isEmpty && scriptKeys.allSatisfy { defaultsSource.contains("\"\($0)\"") }
+                && !uninstallScriptSource.contains("spaces")
+                && !uninstallScriptSource.contains("Screen Recording"),
+               "script uninstall reads only preference keys the app still defines: \(scriptKeys)")
         // zsh passes a plain string to a command as one word, so the script
         // keeps the closed-lid rule names in an array. They must be the files
         // the app looks for, under the current name and every earlier one.
@@ -1999,7 +1204,7 @@ enum RepositoryFeatureTests {
                 .filter { $0.hasPrefix("/etc/sudoers.d/") })
         }
         let appRuleFiles = sudoersRuleFiles(
-            repository.source(at: "Sources/Vorssaint/Services/ShellSupport.swift"))
+            repository.source(at: "Sources/Brim/Services/ShellSupport.swift"))
         let scriptRuleFiles = sudoersRuleFiles(uninstallScriptSource.components(separatedBy: "\n")
             .first { $0.hasPrefix("RULES=(") } ?? "")
         suite.expect(!appRuleFiles.isEmpty && scriptRuleFiles == appRuleFiles,
@@ -2010,7 +1215,7 @@ enum RepositoryFeatureTests {
         // reads the setting, so nothing repairs it afterwards — a reinstall
         // included.
         let uninstallerSource = repository.source(
-            at: "Sources/Vorssaint/Support/Uninstaller.swift")
+            at: "Sources/Brim/Support/Uninstaller.swift")
         suite.expect(!uninstallerSource.isEmpty,
                "uninstaller entry point reads back for the sleep restore check")
         suite.expect(!selfUninstallSource.contains("_ = Sudoers.pmsetDisableSleep")
@@ -2024,188 +1229,9 @@ enum RepositoryFeatureTests {
                 && selfUninstallSource.contains("adminPromptRecover")
                 && selfUninstallSource.contains("verification.status == 0"),
                "in-app uninstall aborts unless fans and normal sleep are restored before removal")
-        suite.expect(uninstallerSource.contains("SpacesOrderHold.restoreForRemoval()"),
-               "script uninstall puts back the Space rearranging setting before the preferences are deleted")
         suite.expect(uninstallScriptSource.contains("SleepDisabled"),
                "script uninstall reads the sleep setting back for itself")
-        suite.expect(uninstallScriptSource.contains("spaces_read_domain \"$BUNDLE\"")
-                && uninstallScriptSource.contains("spaces_recovery_value \"$spaces_snapshot\" \(DefaultsKey.spacesOrderRestore)")
-                && uninstallScriptSource.contains("spaces_recovery_value \"$spaces_snapshot\" \(DefaultsKey.spacesOrderRestartPending)")
-                && uninstallScriptSource.contains("spaces_read_domain com.apple.dock")
-                && uninstallScriptSource.contains("spaces_stuck == 0")
-                && uninstallScriptSource.contains("spaces_unloaded == 0")
-                && uninstallScriptSource.contains("spaces_unknown == 0")
-                && !uninstallScriptSource.contains("defaults write com.apple.dock")
-                && !uninstallScriptSource.contains("killall"),
-               "script uninstall reads Space rearranging back for itself and never changes it")
-        let brightnessSource = repository.source(
-            at: "Sources/Vorssaint/Services/Display/BrightnessService.swift")
-        let brightnessTapMethod = brightnessSource
-            .components(separatedBy: "    func suspendInputTaps()").dropFirst().first?
-            .components(separatedBy: "    private func installFunctionKeyTap").first ?? ""
-        let brightnessTapCode = brightnessTapMethod.components(separatedBy: "\n")
-            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
-            .joined(separator: "\n")
-        suite.expect(selfUninstallSource.contains("TextSnippetService.shared.suspend()")
-                && selfUninstallSource.contains("QuitProtectionService.shared.suspend()")
-                && selfUninstallSource.contains("BrightnessService.shared.suspendInputTaps()")
-                && selfUninstallSource.contains("BrightnessService.shared.resumeInputTaps()")
-                && brightnessTapCode.contains("inputTapsSuspended = true")
-                && brightnessTapCode.contains("removeKeyTap()")
-                && brightnessTapCode.contains("removeFunctionKeyTap()")
-                && !brightnessTapCode.contains("restoreManagedDisplays")
-                && !brightnessTapCode.contains("restoreAllGamma"),
-               "the permission teardown stops every persistent keyboard tap")
-        let quitProtectionSource = repository.source(
-            at: "Sources/Vorssaint/Services/QuitProtection/QuitProtectionService.swift")
-        suite.expect(quitProtectionSource.contains("func suspend()"),
-               "quit protection exposes the teardown the permission reset calls")
-
-        // MARK: Secure input
-
-        // The session records the app that was active when secure input
-        // turned on, not the process holding it, and Settings makes
-        // Vorssaint that app.
-        let secureInputOwnPid: pid_t = 77
-        suite.expect(SecureInputSupport.holder(isEnabled: false,
-                                         read: .noHolder,
-                                         ownPid: secureInputOwnPid,
-                                         runningApp: { _ in nil },
-                                         isProcessAlive: { _ in true }) == .off,
-               "secure input off with no recorded app is off")
-        var secureInputNameLookups = 0
-        let secureInputOffWithPid = SecureInputSupport.holder(
-            isEnabled: false,
-            read: .holder(4242),
-            ownPid: secureInputOwnPid,
-            runningApp: { pid in
-                secureInputNameLookups += 1
-                return ("SomeBrowser", pid)
-            },
-            isProcessAlive: { _ in true })
-        suite.expect(secureInputOffWithPid == .off,
-               "secure input off stays off even with a pid still recorded")
-        suite.expect(SecureInputSupport.holder(isEnabled: false,
-                                         read: .unavailable,
-                                         ownPid: secureInputOwnPid,
-                                         runningApp: { _ in nil },
-                                         isProcessAlive: { _ in true }) == .off,
-               "secure input off stays off when the session cannot be read")
-        suite.expect(secureInputNameLookups == 0,
-               "the name lookup is skipped when secure input is off")
-
-        suite.expect(SecureInputSupport.holder(isEnabled: true,
-                                         read: .holder(999),
-                                         ownPid: secureInputOwnPid,
-                                         runningApp: { pid in
-                                             pid == 999 ? ("SomeBrowser", 4242) : nil
-                                         },
-                                         isProcessAlive: { _ in true })
-                   == .app(name: "SomeBrowser", pid: 4242),
-               "a helper pid is attributed to the app responsible for it")
-        suite.expect(SecureInputSupport.holder(isEnabled: true,
-                                         read: .holder(4242),
-                                         ownPid: secureInputOwnPid,
-                                         runningApp: { _ in nil },
-                                         isProcessAlive: { _ in true }) == .unknown,
-               "a running process that is no regular app is never sent to log out")
-        suite.expect(SecureInputSupport.holder(isEnabled: true,
-                                         read: .holder(4242),
-                                         ownPid: secureInputOwnPid,
-                                         runningApp: { _ in nil },
-                                         isProcessAlive: { _ in false }) == .unattributed,
-               "once the recorded app has quit, a new login session is the fallback")
-        suite.expect(SecureInputSupport.holder(isEnabled: true,
-                                         read: .noHolder,
-                                         ownPid: secureInputOwnPid,
-                                         runningApp: { _ in nil },
-                                         isProcessAlive: { _ in true }) == .unattributed,
-               "secure input on with no recorded app is unattributed")
-        suite.expect(SecureInputSupport.holder(isEnabled: true,
-                                         read: .holder(0),
-                                         ownPid: secureInputOwnPid,
-                                         runningApp: { pid in ("SomeBrowser", pid) },
-                                         isProcessAlive: { _ in true }) == .unattributed,
-               "a zero pid is not an attribution")
-        suite.expect(SecureInputSupport.holder(isEnabled: true,
-                                         read: .holder(4242),
-                                         ownPid: secureInputOwnPid,
-                                         runningApp: { pid in ("", pid) },
-                                         isProcessAlive: { _ in false }) == .unattributed,
-               "an empty app name is not an attribution")
-
-        var secureInputOwnLivenessChecks = 0
-        suite.expect(SecureInputSupport.holder(isEnabled: true,
-                                         read: .holder(secureInputOwnPid),
-                                         ownPid: secureInputOwnPid,
-                                         runningApp: { pid in ("Vorssaint", pid) },
-                                         isProcessAlive: { _ in
-                                             secureInputOwnLivenessChecks += 1
-                                             return true
-                                         }) == .unknown,
-               "Vorssaint recorded as the active app is never named as holding secure input")
-        suite.expect(secureInputOwnLivenessChecks == 0,
-               "naming Vorssaint is refused before any liveness check")
-        suite.expect(SecureInputSupport.holder(isEnabled: true,
-                                         read: .holder(5555),
-                                         ownPid: secureInputOwnPid,
-                                         runningApp: { _ in ("Vorssaint", secureInputOwnPid) },
-                                         isProcessAlive: { _ in true }) == .unknown,
-               "a recorded helper owned by Vorssaint is not named either")
-        suite.expect(SecureInputSupport.holder(isEnabled: true,
-                                         read: .holder(secureInputOwnPid),
-                                         ownPid: secureInputOwnPid,
-                                         runningApp: { _ in nil },
-                                         isProcessAlive: { _ in true }) == .unknown,
-               "Vorssaint recorded while it is not a regular app is never sent to log out")
-        suite.expect(SecureInputSupport.holder(isEnabled: true,
-                                         read: .holder(4242),
-                                         ownPid: secureInputOwnPid,
-                                         runningApp: { pid in ("Vorssaint", pid) },
-                                         isProcessAlive: { _ in true })
-                   == .app(name: "Vorssaint", pid: 4242),
-               "another copy of the app is told apart from this one by pid, not by name")
-        // The rule above protects the row only if the monitor passes this
-        // process, and the harness does not compile `SecureInputMonitor`.
-        let secureInputMonitorCode = ((try? String(
-            contentsOfFile: "Sources/Vorssaint/Core/SecureInputMonitor.swift", encoding: .utf8)) ?? "")
-            .components(separatedBy: "\n")
-            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
-            .joined(separator: "\n")
-        suite.expect(secureInputMonitorCode.contains("ownPid: getpid(),"),
-               "the secure input monitor passes its own pid, so the row never names Vorssaint")
-
-        var secureInputUnavailableLookups = 0
-        var secureInputUnavailableLivenessChecks = 0
-        let secureInputUnavailable = SecureInputSupport.holder(
-            isEnabled: true,
-            read: .unavailable,
-            ownPid: secureInputOwnPid,
-            runningApp: { pid in
-                secureInputUnavailableLookups += 1
-                return ("SomeBrowser", pid)
-            },
-            isProcessAlive: { _ in
-                secureInputUnavailableLivenessChecks += 1
-                return true
-            })
-        suite.expect(secureInputUnavailable == .unknown,
-               "a session that cannot be read reports an unknown holder")
-        suite.expect(secureInputUnavailableLookups == 0 && secureInputUnavailableLivenessChecks == 0,
-               "a session that cannot be read costs no name lookup and no liveness check")
-
-        suite.expect(!SecureInputSupport.shouldPoll(observingSurfaceCount: 0, windowIsOpen: true),
-               "secure input keeps no timer without a visible surface")
-        suite.expect(SecureInputSupport.shouldPoll(observingSurfaceCount: 1, windowIsOpen: true)
-                   && SecureInputSupport.shouldPoll(observingSurfaceCount: 3, windowIsOpen: true),
-               "a visible surface polls secure input while the window is open")
-        suite.expect(SecureInputSupport.shouldPoll(observingSurfaceCount: 1, windowIsOpen: true)
-                   == SecureInputSupport.shouldPoll(observingSurfaceCount: 2, windowIsOpen: true),
-               "repeating a demand does not change whether secure input polls")
-        suite.expect(!SecureInputSupport.shouldPoll(observingSurfaceCount: 1, windowIsOpen: false),
-               "a demand left over from before the window closed does not poll on its own")
-        suite.expect(!SecureInputSupport.shouldPoll(observingSurfaceCount: 0, windowIsOpen: false),
-               "neither gate alone is enough")
-
+        suite.expect(selfUninstallSource.contains("PastePlainService.shared.suspend()"),
+               "the permission teardown stops the persistent keyboard tap")
     }
 }
